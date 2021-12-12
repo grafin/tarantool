@@ -155,4 +155,32 @@ function Cluster:wait_fullmesh(params)
     end, self)
 end
 
+-- Promote (func Server.promote())/demote (func is Server.demote()) server and
+-- make sure all servers in cluster receive the promote/demote messages. This
+-- is useful when we want to be sure no further communication caused by
+-- promote/demote call will happen.
+local elect_in_cluster = function(cluster, server, func)
+    local wal_write_counts = {}
+
+    for i, s in ipairs(cluster.servers) do
+        wal_write_counts[i] = s:wal_write_count()
+    end
+    if func(server) then
+        for i, s in ipairs(cluster.servers) do
+            s:wait_wal_write_count(wal_write_counts[i] + 2)
+        end
+    end
+end
+
+function Cluster:promote(server)
+    elect_in_cluster(self, server, server.promote)
+    for _, s in ipairs(self.servers) do
+        s:wait_synchro_queue_owner_id(server:instance_id())
+    end
+end
+
+function Cluster:demote(server)
+    elect_in_cluster(self, server, server.demote)
+end
+
 return Cluster

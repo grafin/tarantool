@@ -134,6 +134,12 @@ function Server:wait_election_leader_found()
                      function() return box.info.election.leader ~= 0 end)
 end
 
+function Server:wait_election_state(state)
+    return wait_cond('election state', self, self.exec, self, function(state)
+        return box.info.election.state == state
+    end, {state})
+end
+
 function Server:wait_election_term(term)
     return wait_cond('election term', self, self.exec, self, function(term)
         return box.info.election.term >= term
@@ -164,6 +170,18 @@ function Server:wait_lsn(server, lsn)
         end
         return box.info.vclock[server] >= lsn
     end, {server:instance_id(), lsn})
+end
+
+function Server:wait_wal_write_count(count)
+    return wait_cond('wait wal write count', self, self.exec, self, function(count)
+        return box.error.injection.get('ERRINJ_WAL_WRITE_COUNT') >= count
+    end, {count})
+end
+
+function Server:wait_wal_delay()
+    return wait_cond('wait wal delay', self, self.exec, self, function()
+        return box.error.injection.get("ERRINJ_WAL_DELAY")
+    end)
 end
 
 -- Unlike the original luatest.Server function it waits for
@@ -218,6 +236,16 @@ end
 
 function Server:lsn()
     return self:exec(function() return box.info.lsn end)
+end
+
+function Server:wal_write_count()
+    return self:exec(function()
+        return box.error.injection.get('ERRINJ_WAL_WRITE_COUNT')
+    end)
+end
+
+function Server:box_config(config)
+    return self:exec(function(config) return box.cfg(config) end, {config})
 end
 
 -- TODO: Add the 'wait_for_readiness' parameter for the restart()
@@ -356,6 +384,46 @@ function Server:wait_vclock(to_vclock)
             yaml.encode(vclock), yaml.encode(to_vclock))
         fiber.sleep(0.001)
     end
+end
+
+-- After this function returns server 100% thinks he owns synchro queue.
+-- If actual promotion happened (election term changed) it returns true,
+-- if term didn't change it return false.
+function Server:promote()
+    self:exec(function()
+        local old_election_term = box.info.election.term
+        local i = 0
+        pcall(box.ctl.promote)
+        while box.info.synchro.queue.owner ~= box.info.id do
+            if i > 10 then
+                error(string.format('Failed to promote server %d', box.info.id))
+            end
+            pcall(box.ctl.promote)
+            require('fiber').sleep(0.01)
+            i = i + 1
+        end
+        return box.info.election.term ~= old_election_term
+    end)
+end
+
+-- After this function returns server 100% thinks he doesn't own synchro queue.
+-- If actual promotion happened (election term changed) it returns true,
+-- if term didn't change it return false.
+function Server:demote()
+    self:exec(function()
+        local old_election_term = box.info.election.term
+        local i = 0
+        pcall(box.ctl.demote)
+        while box.info.synchro.queue.owner == box.info.id do
+            if i > 10 then
+                error(string.format('Failed to demote server %d', box.info.id))
+            end
+            pcall(box.ctl.demote)
+            require('fiber').sleep(0.01)
+            i = i + 1
+        end
+        return box.info.election.term ~= old_election_term
+    end)
 end
 
 return Server
