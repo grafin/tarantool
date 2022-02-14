@@ -376,6 +376,7 @@ relay_stop(struct relay *relay)
 	 */
 	relay->txn_lag = 0;
 	relay->tx.txn_lag = 0;
+	box_raft_on_message_send();
 }
 
 void
@@ -1099,8 +1100,14 @@ tx_raft_msg_return(struct cmsg *base)
 {
 	struct relay_raft_msg *msg = (struct relay_raft_msg *)base;
 	msg->relay->tx.is_raft_push_sent = false;
+
 	if (msg->relay->tx.is_raft_push_pending)
 		relay_push_raft_msg(msg->relay);
+
+	if (diag_is_empty(&msg->relay->diag))
+		msg->relay->replica->sent_term = msg->req.term;
+
+	box_raft_on_message_send();
 }
 
 void

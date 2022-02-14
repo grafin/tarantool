@@ -1671,6 +1671,10 @@ box_run_elections(void)
 			return -1;
 		}
 	} while (raft->leader == 0);
+
+	if (box_raft_wait_term_broadcasted() != 0)
+		return -1;
+
 	if (raft->state != RAFT_STATE_LEADER) {
 		diag_set(ClientError, ER_INTERFERING_PROMOTE,
 			 raft->leader);
@@ -1702,6 +1706,8 @@ box_trigger_elections(void)
 	uint64_t promote_term = txn_limbo.promote_greatest_term;
 	raft_new_term(box_raft());
 	if (box_raft_wait_term_persisted() < 0)
+		return -1;
+	if (box_raft_wait_term_broadcasted() != 0)
 		return -1;
 	return box_check_promote_term_intact(promote_term);
 }
@@ -1835,6 +1841,8 @@ box_promote_qsync(void)
 		diag_set(ClientError, ER_NOT_LEADER, raft->leader);
 		return -1;
 	}
+	if (box_raft_wait_term_broadcasted() != 0)
+		return -1;
 	box_issue_promote(txn_limbo.owner_id, wait_lsn);
 	return 0;
 }
@@ -3082,6 +3090,7 @@ box_process_subscribe(struct iostream *io, const struct xrow_header *header)
 		box_raft_checkpoint_remote(&req);
 		xrow_encode_raft(&row, &fiber()->gc, &req);
 		coio_write_xrow(io, &row);
+		replica->sent_term = req.term;
 	}
 	/*
 	 * Replica clock is used in gc state and recovery

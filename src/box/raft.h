@@ -112,6 +112,14 @@ box_raft_wait_term_outcome(void);
 int
 box_raft_wait_term_persisted(void);
 
+/** Block this fiber until the current volatile term is broadcasted. */
+int
+box_raft_wait_term_broadcasted(void);
+
+/** Triggered when RAFT message has been sent to neighbour */
+void
+box_raft_on_message_send(void);
+
 void
 box_raft_init(void);
 
