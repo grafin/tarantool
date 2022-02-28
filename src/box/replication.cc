@@ -60,6 +60,12 @@ int replication_threads = 1;
 
 struct replicaset replicaset;
 
+struct rlist replicaset_on_quorum_gain =
+	RLIST_HEAD_INITIALIZER(replicaset_on_quorum_gain);
+
+struct rlist replicaset_on_quorum_loss =
+	RLIST_HEAD_INITIALIZER(replicaset_on_quorum_loss);
+
 static int
 replica_compare_by_uuid(const struct replica *a, const struct replica *b)
 {
@@ -104,6 +110,9 @@ replication_init(int num_threads)
 	diag_create(&replicaset.applier.diag);
 
 	replication_threads = num_threads;
+
+	/* The local instance is always part of the quorum. */
+	replicaset.healthy_count = 1;
 
 	applier_init();
 }
@@ -187,6 +196,8 @@ replica_new(void)
 	replica->uuid = uuid_nil;
 	replica->applier = NULL;
 	replica->gc = NULL;
+	replica->is_applier_healthy = false;
+	replica->is_relay_healthy = false;
 	rlist_create(&replica->in_anon);
 	trigger_create(&replica->on_applier_state,
 		       replica_on_applier_state_f, NULL, NULL);
@@ -318,6 +329,49 @@ replica_clear_id(struct replica *replica)
 	box_update_replication_synchro_quorum();
 }
 
+bool
+replicaset_has_healthy_quorum(void)
+{
+	int quorum = replicaset_healthy_quorum();
+	return replicaset.healthy_count >= quorum;
+}
+
+void
+replicaset_check_healthy_quorum(void)
+{
+	if (replicaset_has_healthy_quorum())
+		trigger_run(&replicaset_on_quorum_gain, NULL);
+	else
+		trigger_run(&replicaset_on_quorum_loss, NULL);
+}
+
+/**
+ * Account applier in this replica's connection status and check whether it's
+ * become healthy.
+ */
+static void
+replica_on_applier_follow(struct replica *replica)
+{
+	assert(!replica->is_applier_healthy);
+	replica->is_applier_healthy = true;
+	if (replica->is_relay_healthy && !replica->anon) {
+		replicaset.healthy_count++;
+		replicaset_check_healthy_quorum();
+	}
+}
+
+/** Notify replica of applier disconnect and remove it from healthy list. */
+static void
+replica_on_applier_off(struct replica *replica)
+{
+	assert(replica->is_applier_healthy);
+	replica->is_applier_healthy = false;
+	if (replica->is_relay_healthy && !replica->anon) {
+		replicaset.healthy_count--;
+		replicaset_check_healthy_quorum();
+	}
+}
+
 void
 replica_set_applier(struct replica *replica, struct applier *applier)
 {
@@ -333,6 +387,8 @@ replica_clear_applier(struct replica *replica)
 	assert(replica->applier != NULL);
 	replica->applier = NULL;
 	trigger_clear(&replica->on_applier_state);
+	if (replica->is_applier_healthy)
+		replica_on_applier_off(replica);
 }
 
 static void
@@ -444,6 +500,7 @@ replica_on_applier_disconnect(struct replica *replica)
 	case APPLIER_SYNC:
 		assert(replicaset.applier.synced > 0);
 		replicaset.applier.synced--;
+		replica_on_applier_off(replica);
 		FALLTHROUGH;
 	case APPLIER_CONNECTED:
 		assert(replicaset.applier.connected > 0);
@@ -492,6 +549,7 @@ replica_on_applier_state_f(struct trigger *trigger, void *event)
 		break;
 	case APPLIER_FOLLOW:
 		replica_on_applier_sync(replica);
+		replica_on_applier_follow(replica);
 		break;
 	case APPLIER_OFF:
 		/*
@@ -500,6 +558,8 @@ replica_on_applier_state_f(struct trigger *trigger, void *event)
 		 * has been cancelled. Assume synced.
 		 */
 		replica_on_applier_sync(replica);
+		if (replica->is_applier_healthy)
+			replica_on_applier_off(replica);
 		break;
 	case APPLIER_STOPPED:
 		/* Unrecoverable error. */
@@ -943,6 +1003,30 @@ replicaset_check_quorum(void)
 }
 
 void
+replica_on_relay_follow(struct replica *replica)
+{
+	assert(relay_get_state(replica->relay) == RELAY_FOLLOW);
+	assert(!replica->is_relay_healthy);
+	replica->is_relay_healthy = true;
+	if (replica->is_applier_healthy && !replica->anon) {
+		replicaset.healthy_count++;
+		replicaset_check_healthy_quorum();
+	}
+}
+
+/** Mark this replica's relay connection as unhealthy. */
+static void
+replica_on_relay_off(struct replica *replica)
+{
+	assert(replica->is_relay_healthy);
+	replica->is_relay_healthy = false;
+	if (replica->is_applier_healthy && !replica->anon) {
+		replicaset.healthy_count--;
+		replicaset_check_healthy_quorum();
+	}
+}
+
+void
 replica_on_relay_stop(struct replica *replica)
 {
 	/*
@@ -959,6 +1043,9 @@ replica_on_relay_stop(struct replica *replica)
 			assert(replica->gc == NULL);
 		}
 	}
+
+	replica_on_relay_off(replica);
+
 	if (replica_is_orphan(replica)) {
 		replica_hash_remove(&replicaset.hash, replica);
 		replicaset.anon_count -= replica->anon;
