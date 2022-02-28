@@ -161,6 +161,16 @@ extern bool replication_anon;
 extern int replication_threads;
 
 /**
+ * A list of triggers fired once quorum of "healthy" connections is acquired.
+ */
+extern struct rlist replicaset_on_quorum_gain;
+
+/**
+ * A list of triggers fired once the quorum of "healthy" connections is lost.
+ */
+extern struct rlist replicaset_on_quorum_loss;
+
+/**
  * Wait for the given period of time before trying to reconnect
  * to a master.
  */
@@ -237,6 +247,13 @@ struct replicaset {
 	 * accounted here.
 	 */
 	int registered_count;
+	/**
+	 * Number of registered replicas, to which this node has a bidirectional
+	 * connection, such that both relay and applier are in FOLLOW state.
+	 * Used to notify various subsystems whether there is a quorum of
+	 * followers connected.
+	 */
+	int healthy_count;
 	/** Applier state. */
 	struct {
 		/**
@@ -313,6 +330,10 @@ struct replica {
 	 * _cluster table.
 	 */
 	bool anon;
+	/** Whether there is an established relay to this replica. */
+	bool has_relay_connection;
+	/** Whether there is an applier subscribed to this replica. */
+	bool has_applier_connection;
 	/** Applier fiber. */
 	struct applier *applier;
 	/** Relay thread. */
@@ -406,6 +427,22 @@ replica_clear_applier(struct replica *replica);
 
 void
 replica_set_applier(struct replica * replica, struct applier * applier);
+
+/**
+ * Check if there are enough "healthy" connections, and fire the appropriate
+ * triggers. A replica connection is considered "healthy", when:
+ * - it is a connection to a registered replica.
+ * - it is bidirectional, e.g. there are both relay and applier for this
+ *   replica.
+ * - both relay and applier are in "FOLLOW" state, the normal state of operation
+ *   during SUBSCRIBE.
+ */
+void
+replicaset_check_healthy_quorum(void);
+
+/** Track an established downstream connection in replica. */
+void
+replica_on_relay_start(struct replica *replica);
 
 /**
  * Unregister \a relay from the \a replica.

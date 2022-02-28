@@ -1450,6 +1450,7 @@ box_update_replication_synchro_quorum(void)
 	replication_synchro_quorum = quorum;
 	txn_limbo_on_parameters_change(&txn_limbo);
 	box_raft_update_election_quorum();
+	replicaset_check_healthy_quorum();
 }
 
 int
