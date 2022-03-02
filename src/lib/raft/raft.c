@@ -269,6 +269,16 @@ static void
 raft_sm_schedule_new_vote(struct raft *raft, uint32_t new_vote);
 
 /**
+ * Check the conditions for starting elections, and start them, if possible.
+ * These conditions are:
+ * - no connection to the old leader
+ * - a quorum of connected peers
+ * - none of the peers sees the old leader
+ */
+static void
+raft_update(struct raft *raft);
+
+/**
  * Bump term and vote for self immediately. After that is persisted, the
  * election timeout will be activated. Unless during that nothing newer happens.
  */
@@ -309,6 +319,12 @@ raft_msg_to_string(const struct raft_msg *req)
 	size -= rc;
 	if (req->vote != 0) {
 		rc = snprintf(pos, size, ", vote: %u", req->vote);
+		assert(rc >= 0 && rc < size);
+		pos += rc;
+		size -= rc;
+	}
+	if (req->leader != 0) {
+		rc = snprintf(pos, size, ", leader: %u", req->leader);
 		assert(rc >= 0 && rc < size);
 		pos += rc;
 		size -= rc;
@@ -394,6 +410,10 @@ raft_process_msg(struct raft *raft, const struct raft_msg *req, uint32_t source)
 	/* Term bump. */
 	if (req->term > raft->volatile_term)
 		raft_sm_schedule_new_term(raft, req->term);
+
+	/* Notification from a remote node that it sees the current leader. */
+	raft_notify_leader_seen(raft, req->leader != 0, source);
+
 	/*
 	 * Either a vote request during an on-going election. Or an old vote
 	 * persisted long time ago and still broadcasted. Or a vote response.
@@ -487,8 +507,10 @@ raft_process_msg(struct raft *raft, const struct raft_msg *req, uint32_t source)
 			 */
 			raft->leader = 0;
 			raft_schedule_broadcast(raft);
-			if (raft->is_candidate)
-				raft_sm_schedule_new_election(raft);
+			if (raft->is_candidate) {
+				raft->timed_out = true;
+				raft_update(raft);
+			}
 		}
 		return 0;
 	}
@@ -545,8 +567,8 @@ raft_process_heartbeat(struct raft *raft, uint32_t source)
 	 * anything was heard from the leader. Then in the timer callback check
 	 * the timestamp, and restart the timer, if it is fine.
 	 */
-	assert(raft_ev_timer_is_active(&raft->timer));
-	raft_ev_timer_stop(raft_loop(), &raft->timer);
+	if (raft_ev_timer_is_active(&raft->timer))
+		raft_ev_timer_stop(raft_loop(), &raft->timer);
 	raft_sm_wait_leader_dead(raft);
 }
 
@@ -631,6 +653,7 @@ raft_checkpoint_remote(const struct raft *raft, struct raft_msg *req)
 	 */
 	req->term = raft->term;
 	req->vote = raft->vote;
+	req->leader = raft->timed_out ? 0 : raft->leader;
 	req->state = raft->state;
 	/*
 	 * Raft does not own vclock, so it always expects it passed externally.
@@ -701,6 +724,7 @@ raft_sm_become_leader(struct raft *raft)
 	assert(!raft->is_write_in_progress);
 	raft->state = RAFT_STATE_LEADER;
 	raft->leader = raft->self;
+	raft->timed_out = false;
 	raft_ev_timer_stop(raft_loop(), &raft->timer);
 	/* State is visible and it is changed - broadcast. */
 	raft_schedule_broadcast(raft);
@@ -714,6 +738,7 @@ raft_sm_follow_leader(struct raft *raft, uint32_t leader)
 	assert(raft->leader == 0);
 	raft->state = RAFT_STATE_FOLLOWER;
 	raft->leader = leader;
+	raft->timed_out = false;
 	if (!raft->is_write_in_progress && raft->is_candidate) {
 		raft_ev_timer_stop(raft_loop(), &raft->timer);
 		raft_sm_wait_leader_dead(raft);
@@ -753,6 +778,8 @@ raft_sm_schedule_new_term(struct raft *raft, uint64_t new_term)
 	memset(raft->votes, 0, sizeof(raft->votes));
 	raft->voted_count = 0;
 	raft->max_vote = 0;
+	raft->timed_out = false;
+	raft->leader_seen = 0;
 	/*
 	 * The instance could be promoted for the previous term. But promotion
 	 * has no effect on following terms.
@@ -792,6 +819,22 @@ raft_sm_schedule_new_election(struct raft *raft)
 }
 
 static void
+raft_update(struct raft *raft)
+{
+	if (raft->timed_out) {
+		/*
+		 * The node may only time out when it waits for something.
+		 * In other words, when it's a candidate.
+		 */
+		assert(raft->is_candidate);
+		raft_schedule_broadcast(raft);
+		if (raft->have_quorum && raft->leader_seen == 0) {
+			raft_sm_schedule_new_election(raft);
+		}
+	}
+}
+
+static void
 raft_sm_schedule_new_election_cb(struct ev_loop *loop, struct ev_timer *timer,
 				 int events)
 {
@@ -804,7 +847,8 @@ raft_sm_schedule_new_election_cb(struct ev_loop *loop, struct ev_timer *timer,
 	 */
 	assert(raft_is_fully_on_disk(raft));
 	raft_ev_timer_stop(loop, timer);
-	raft_sm_schedule_new_election(raft);
+	raft->timed_out = true;
+	raft_update(raft);
 }
 
 static void
@@ -815,8 +859,10 @@ raft_sm_wait_leader_dead(struct raft *raft)
 	assert(raft->is_candidate);
 	assert(raft->state == RAFT_STATE_FOLLOWER);
 	assert(raft->leader != 0);
+	raft->timed_out = false;
 	raft_ev_timer_set(&raft->timer, raft->death_timeout, raft->death_timeout);
 	raft_ev_timer_start(raft_loop(), &raft->timer);
+	raft->leader_last_seen = raft_ev_now(raft_loop());
 }
 
 static void
@@ -827,6 +873,7 @@ raft_sm_wait_leader_found(struct raft *raft)
 	assert(raft->is_candidate);
 	assert(raft->state == RAFT_STATE_FOLLOWER);
 	assert(raft->leader == 0);
+	raft->timed_out = false;
 	raft_ev_timer_set(&raft->timer, raft->death_timeout, raft->death_timeout);
 	raft_ev_timer_start(raft_loop(), &raft->timer);
 }
@@ -841,6 +888,7 @@ raft_sm_wait_election_end(struct raft *raft)
 	       (raft->state == RAFT_STATE_CANDIDATE &&
 		raft->volatile_vote == raft->self));
 	assert(raft->leader == 0);
+	raft->timed_out = false;
 	double election_timeout = raft->election_timeout +
 				  raft_new_random_election_shift(raft);
 	raft_ev_timer_set(&raft->timer, election_timeout, election_timeout);
@@ -904,6 +952,7 @@ raft_sm_stop(struct raft *raft)
 		raft->leader = 0;
 	raft->state = RAFT_STATE_FOLLOWER;
 	raft_ev_timer_stop(raft_loop(), &raft->timer);
+	raft->timed_out = false;
 	/* State is visible and changed - broadcast. */
 	raft_schedule_broadcast(raft);
 }
@@ -961,6 +1010,7 @@ raft_stop_candidate(struct raft *raft)
 	raft->is_candidate = false;
 	/* Do not wait for anything while not being a candidate. */
 	raft_ev_timer_stop(raft_loop(), &raft->timer);
+	raft->timed_out = false;
 	if (raft->state == RAFT_STATE_LEADER)
 		raft->leader = 0;
 	raft->state = RAFT_STATE_FOLLOWER;
@@ -981,6 +1031,35 @@ raft_cfg_is_candidate(struct raft *raft, bool is_candidate)
 {
 	raft->is_cfg_candidate = is_candidate;
 	raft_restore(raft);
+}
+
+void
+raft_notify_have_quorum(struct raft *raft, bool have_quorum)
+{
+	if (raft->have_quorum == have_quorum)
+		return;
+
+	raft->have_quorum = have_quorum;
+
+	raft_update(raft);
+}
+
+void
+raft_notify_leader_seen(struct raft *raft, bool leader_seen, uint32_t source)
+{
+	assert(source > 0 && source < VCLOCK_MAX);
+	assert(source != raft->self);
+
+	bool old_leader_seen = (raft->leader_seen & 1 << source) != 0;
+	if (old_leader_seen == leader_seen)
+		return;
+
+	if (leader_seen)
+		raft->leader_seen |= 1 << source;
+	else
+		raft->leader_seen &= ~(1 << source);
+
+	raft_update(raft);
 }
 
 void

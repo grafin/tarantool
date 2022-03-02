@@ -107,6 +107,11 @@ struct raft_msg {
 	 */
 	uint32_t vote;
 	/**
+	 * Instance id of the current term leader. Can be 0, when the node
+	 * doesn't have a direct connection to the leader.
+	 */
+	uint32_t leader;
+	/**
 	 * State of the instance. Can be 0 if the state does not matter for the
 	 * message. For instance, when the message is sent to disk.
 	 */
@@ -151,6 +156,8 @@ struct raft {
 	uint32_t self;
 	/** Instance ID of leader of the current term. */
 	uint32_t leader;
+	/** The moment of the last communication with the leader. */
+	double leader_last_seen;
 	/** State of the instance. */
 	enum raft_state state;
 	/**
@@ -192,6 +199,15 @@ struct raft {
 	 */
 	bool is_broadcast_scheduled;
 	/**
+	 * Whether this instance has a quorum of connections to and from the
+	 * remote peers or not.
+	 */
+	bool have_quorum;
+	/**
+	 * Whether the timer for leader elections has already fired.
+	 */
+	bool timed_out;
+	/**
 	 * Persisted Raft state. These values are used when need to tell current
 	 * Raft state to other nodes.
 	 */
@@ -203,6 +219,8 @@ struct raft {
 	int voted_count;
 	/** Max vote count given to any node in the current term. */
 	int max_vote;
+	/** A bitmap of sources which see the leader of the current term. */
+	uint32_t leader_seen;
 	/** Number of votes necessary for successful election. */
 	int election_quorum;
 	/**
@@ -235,6 +253,9 @@ struct raft {
 	 */
 	struct rlist on_update;
 };
+
+static_assert(CHAR_BIT * sizeof(((struct raft *)0)->leader_seen) == VCLOCK_MAX,
+	      "Wrong raft->leader_seen bitmap size");
 
 /**
  * A flag whether the instance is read-only according to Raft. Even if Raft
@@ -291,6 +312,17 @@ raft_cfg_is_enabled(struct raft *raft, bool is_enabled);
  */
 void
 raft_cfg_is_candidate(struct raft *raft, bool is_candidate);
+
+/**
+ * Notify the instance whether it has a quorum of bidirectional connections to
+ * the remote peers.
+ */
+void
+raft_notify_have_quorum(struct raft *raft, bool have_quorum);
+
+/** Notify this instance whether its peer sees the current leader. */
+void
+raft_notify_leader_seen(struct raft *raft, bool leader_seen, uint32_t source);
 
 /**
  * Bump the term and become a candidate for it regardless of the config. In case

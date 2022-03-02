@@ -53,6 +53,13 @@ raft_ev_timer_stop(struct ev_loop *loop, struct ev_timer *watcher)
 	fakeev_timer_stop(loop, watcher);
 }
 
+double
+raft_ev_now(struct ev_loop *loop)
+{
+	(void)loop;
+	return raft_time();
+}
+
 struct ev_loop *
 raft_loop(void)
 {
@@ -372,6 +379,7 @@ raft_node_recover(struct raft_node *node)
 
 	for (int i = 0; i < node->journal.size; ++i)
 		raft_process_recovery(&node->raft, &node->journal.rows[i]);
+	raft_notify_have_quorum(&node->raft, true);
 	raft_run_async_work();
 }
 

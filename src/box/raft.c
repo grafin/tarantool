@@ -52,6 +52,12 @@ enum election_mode box_election_mode = ELECTION_MODE_INVALID;
  */
 static struct trigger box_raft_on_update;
 
+/** Triggers executed once the node gains a quorum of connected peers. */
+static struct trigger box_raft_on_quorum_gain;
+
+/** Triggers executed once the node loses a quorum of connected peers. */
+static struct trigger box_raft_on_quorum_loss;
+
 struct rlist box_raft_on_broadcast =
 	RLIST_HEAD_INITIALIZER(box_raft_on_broadcast);
 
@@ -70,6 +76,7 @@ box_raft_msg_to_request(const struct raft_msg *msg, struct raft_request *req)
 	*req = (struct raft_request) {
 		.term = msg->term,
 		.vote = msg->vote,
+		.leader = msg->leader,
 		.state = msg->state,
 		.vclock = msg->vclock,
 	};
@@ -81,6 +88,7 @@ box_raft_request_to_msg(const struct raft_request *req, struct raft_msg *msg)
 	*msg = (struct raft_msg) {
 		.term = req->term,
 		.vote = req->vote,
+		.leader = req->leader,
 		.state = req->state,
 		.vclock = req->vclock,
 	};
@@ -435,6 +443,28 @@ box_raft_wait_term_persisted(void)
 	return 0;
 }
 
+static int
+box_raft_on_quorum_gain_f(struct trigger *trigger, void *event)
+{
+	(void)trigger;
+	(void)event;
+
+	raft_notify_have_quorum(box_raft(), true);
+
+	return 0;
+}
+
+static int
+box_raft_on_quorum_loss_f(struct trigger *trigger, void *event)
+{
+	(void)trigger;
+	(void)event;
+
+	raft_notify_have_quorum(box_raft(), false);
+
+	return 0;
+}
+
 void
 box_raft_init(void)
 {
@@ -446,6 +476,14 @@ box_raft_init(void)
 	raft_create(&box_raft_global, &box_raft_vtab);
 	trigger_create(&box_raft_on_update, box_raft_on_update_f, NULL, NULL);
 	raft_on_update(box_raft(), &box_raft_on_update);
+
+	trigger_create(&box_raft_on_quorum_gain, box_raft_on_quorum_gain_f,
+		       NULL, NULL);
+	trigger_add(&replicaset_on_quorum_gain, &box_raft_on_quorum_gain);
+
+	trigger_create(&box_raft_on_quorum_loss, box_raft_on_quorum_loss_f,
+		       NULL, NULL);
+	trigger_add(&replicaset_on_quorum_loss, &box_raft_on_quorum_loss);
 }
 
 void

@@ -369,6 +369,8 @@ replica_remove_applier_connection(struct replica *replica)
 		replicaset.healthy_count--;
 		replicaset_check_healthy_quorum();
 	}
+	if (replica->id != 0)
+		raft_notify_leader_seen(box_raft(), false, replica->id);
 }
 
 void
