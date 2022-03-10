@@ -621,20 +621,42 @@ end_dump:
 	}
 }
 
+void
+raft_checkpoint_remote(const struct raft *raft, struct raft_msg *req)
+{
+	memset(req, 0, sizeof(*req));
+	/*
+	 * Volatile state is never used for any communications.
+	 * Use only persisted state.
+	 */
+	req->term = raft->term;
+	req->vote = raft->vote;
+	req->state = raft->state;
+	/*
+	 * Raft does not own vclock, so it always expects it passed externally.
+	 * Vclock is sent out only by candidate instances.
+	 */
+	if (req->state == RAFT_STATE_CANDIDATE) {
+		assert(raft->vote == raft->self);
+		req->vclock = raft->vclock;
+	}
+}
+
+void
+raft_checkpoint_local(const struct raft *raft, struct raft_msg *req)
+{
+	memset(req, 0, sizeof(*req));
+	req->term = raft->term;
+	req->vote = raft->vote;
+}
+
 /* Broadcast Raft complete state to the followers. */
 static void
 raft_worker_handle_broadcast(struct raft *raft)
 {
 	assert(raft->is_broadcast_scheduled);
 	struct raft_msg req;
-	memset(&req, 0, sizeof(req));
-	req.term = raft->term;
-	req.vote = raft->vote;
-	req.state = raft->state;
-	if (req.state == RAFT_STATE_CANDIDATE) {
-		assert(raft->vote == raft->self);
-		req.vclock = raft->vclock;
-	}
+	raft_checkpoint_remote(raft, &req);
 	raft_broadcast(raft, &req);
 	raft->is_broadcast_scheduled = false;
 }
@@ -884,33 +906,6 @@ raft_sm_stop(struct raft *raft)
 	raft_ev_timer_stop(raft_loop(), &raft->timer);
 	/* State is visible and changed - broadcast. */
 	raft_schedule_broadcast(raft);
-}
-
-void
-raft_checkpoint_remote(const struct raft *raft, struct raft_msg *req)
-{
-	memset(req, 0, sizeof(*req));
-	/*
-	 * Volatile state is never used for any communications.
-	 * Use only persisted state.
-	 */
-	req->term = raft->term;
-	req->vote = raft->vote;
-	req->state = raft->state;
-	/*
-	 * Raft does not own vclock, so it always expects it passed externally.
-	 * Vclock is sent out only by candidate instances.
-	 */
-	if (req->state == RAFT_STATE_CANDIDATE)
-		req->vclock = raft->vclock;
-}
-
-void
-raft_checkpoint_local(const struct raft *raft, struct raft_msg *req)
-{
-	memset(req, 0, sizeof(*req));
-	req->term = raft->term;
-	req->vote = raft->vote;
 }
 
 void
