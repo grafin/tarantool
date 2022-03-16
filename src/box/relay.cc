@@ -58,6 +58,7 @@
 #include "raft.h"
 
 #include <stdlib.h>
+#include <backtrace.h>
 
 /**
  * Cbus message to send status updates from relay to tx thread.
@@ -1099,6 +1100,9 @@ relay_raft_msg_push(struct cmsg *base)
 		 * would be ignored again.
 		 */
 		relay_send(msg->relay, &row);
+		struct replica *replica= msg->relay->replica;
+		if (replica != NULL && msg->req.term > replica->sent_term)
+			replica->sent_term = msg->req.term;
 		if (msg->req.state == RAFT_STATE_LEADER)
 			relay_restart_recovery(msg->relay);
 	} catch (Exception *e) {
@@ -1144,6 +1148,7 @@ relay_push_raft(struct relay *relay, const struct raft_request *req)
 static void
 relay_send_row(struct xstream *stream, struct xrow_header *packet)
 {
+	print_backtrace();
 	struct relay *relay = container_of(stream, struct relay, stream);
 	if (packet->group_id == GROUP_LOCAL) {
 		/*
@@ -1189,6 +1194,13 @@ relay_send_row(struct xstream *stream, struct xrow_header *packet)
 			packet->tsn = packet->lsn;
 			say_warn("injected broken lsn: %lld",
 				 (long long) packet->lsn);
+		}
+		if (relay->replica != NULL && !relay->replica->anon &&
+		    iproto_type_is_promote_request(packet->type)) {
+			struct synchro_request req;
+			xrow_decode_synchro(packet, &req);
+			while (req.term > relay->replica->sent_term)
+				cbus_process(&relay->tx_endpoint);
 		}
 		relay_send(relay, packet);
 	}

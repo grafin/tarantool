@@ -3086,6 +3086,8 @@ box_process_subscribe(struct iostream *io, const struct xrow_header *header)
 		box_raft_checkpoint_remote(&req);
 		xrow_encode_raft(&row, &fiber()->gc, &req);
 		coio_write_xrow(io, &row);
+		if (req.term > replica->sent_term)
+			replica->sent_term = req.term;
 	}
 	/*
 	 * Replica clock is used in gc state and recovery
