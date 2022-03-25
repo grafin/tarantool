@@ -3244,6 +3244,12 @@ bootstrap_journal_write(struct journal *base, struct journal_entry *entry)
 static void
 bootstrap_master(const struct tt_uuid *replicaset_uuid)
 {
+	/**
+	 * Disable RAFT fencing until we connect to quorum of replicas. Otherwise
+	 * bootstrap master will fence itself during bootstrap and it will fail.
+	 */
+	raft_fencing_disable(box_raft());
+
 	/* Do not allow to bootstrap a readonly instance as master. */
 	if (cfg_geti("read_only") == 1) {
 		tnt_raise(ClientError, ER_BOOTSTRAP_READONLY);

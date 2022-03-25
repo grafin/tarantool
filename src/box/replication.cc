@@ -330,6 +330,12 @@ replica_clear_id(struct replica *replica)
 void
 replicaset_check_healthy_quorum(void)
 {
+	/* @TODO Remove */
+	say_info("DEBUG: %s, %d/%d/%d", __func__,
+		replicaset.healthy_count, replication_synchro_quorum, replicaset.registered_count);
+
+	struct raft *raft = box_raft();
+
 	/*
 	 * Quorum might be greater thn the number of registered nodes during
 	 * bootstrap or due to misconfiguration. In this case, assume the node
@@ -338,6 +344,13 @@ replicaset_check_healthy_quorum(void)
 	 */
 	int quorum = MAX(replicaset.registered_count, 1);
 	quorum = MIN(replicaset.registered_count, replication_synchro_quorum);
+
+	/* TODO fix when int quorum is fixed 2 -> smthg? */
+	int fencing_quorum = MAX(replication_synchro_quorum, 2);
+	fencing_quorum = MAX(fencing_quorum, replication_connect_quorum);
+	if (!raft->fencing_enabled && replicaset.healthy_count >= fencing_quorum)
+		raft_fencing_enable(raft);
+
 	if (replicaset.healthy_count >= quorum)
 		trigger_run(&replicaset_on_quorum_gain, NULL);
 	else

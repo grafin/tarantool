@@ -254,7 +254,8 @@ struct raft {
 	struct rlist on_update;
 	/**
 	 * Flag whether Raft leader fencing is enabled. If enabled leader will
-	 * resign when it looses quorum for any reason.
+	 * resign when it looses quorum for any reason. Should be disabled during
+	 * bootstraping and enabled when initial quorum is obtained.
 	 */
 	bool fencing_enabled;
 };
