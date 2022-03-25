@@ -449,7 +449,14 @@ box_raft_step_down(void)
 	struct raft *raft = box_raft();
 	if (!raft->fencing_enabled)
 		return;
+	box_set_orphan(true);
 	raft_step_down(raft);
+}
+
+static void
+box_raft_step_up(void)
+{
+	box_set_orphan(false);
 }
 
 static int
@@ -459,6 +466,7 @@ box_raft_on_quorum_gain_f(struct trigger *trigger, void *event)
 	(void)event;
 
 	raft_notify_have_quorum(box_raft(), true);
+	box_raft_step_up();
 
 	return 0;
 }
