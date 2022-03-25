@@ -443,6 +443,15 @@ box_raft_wait_term_persisted(void)
 	return 0;
 }
 
+static void
+box_raft_step_down(void)
+{
+	struct raft *raft = box_raft();
+	if (!raft->fencing_enabled)
+		return;
+	raft_step_down(raft);
+}
+
 static int
 box_raft_on_quorum_gain_f(struct trigger *trigger, void *event)
 {
@@ -460,6 +469,7 @@ box_raft_on_quorum_loss_f(struct trigger *trigger, void *event)
 	(void)trigger;
 	(void)event;
 
+	box_raft_step_down();
 	raft_notify_have_quorum(box_raft(), false);
 
 	return 0;

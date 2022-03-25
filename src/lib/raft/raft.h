@@ -252,6 +252,11 @@ struct raft {
 	 * changed.
 	 */
 	struct rlist on_update;
+	/**
+	 * Flag whether Raft leader fencing is enabled. If enabled leader will
+	 * resign when it looses quorum for any reason.
+	 */
+	bool fencing_enabled;
 };
 
 static_assert(CHAR_BIT * sizeof(((struct raft *)0)->leader_seen) == VCLOCK_MAX,
@@ -331,6 +336,9 @@ raft_notify_leader_seen(struct raft *raft, bool leader_seen, uint32_t source);
  */
 void
 raft_promote(struct raft *raft);
+
+void
+raft_step_down(struct raft *raft);
 
 /**
  * Restore the instance role according to its config. In particular, if it was
@@ -422,6 +430,18 @@ raft_create(struct raft *raft, const struct raft_vtab *vtab);
 
 void
 raft_destroy(struct raft *raft);
+
+/**
+ * Enable fencing. Node will resign its leader role, if it looses quorum.
+ */
+void
+raft_fencing_enable(struct raft *raft);
+
+/**
+ * Disable fencing. Node won't resign its leader role, if it looses quorum.
+ */
+void
+raft_fencing_disable(struct raft *raft);
 
 #if defined(__cplusplus)
 }
