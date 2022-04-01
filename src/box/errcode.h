@@ -293,6 +293,7 @@ struct errcode_record {
 	/*238 */_(ER_FOREIGN_KEY_INTEGRITY,	"Foreign key '%s' integrity check failed: %s") \
 	/*239 */_(ER_FIELD_FOREIGN_KEY_FAILED,	"Foreign key constraint '%s' failed for field '%s': %s") \
 	/*239 */_(ER_COMPLEX_FOREIGN_KEY_FAILED, "Foreign key constraint '%s' failed: %s") \
+	/*240 */_(ER_NO_ELECTION_QUORUM,		"Not enough peers connected to start elections: %d out of minimal required %d")\
 
 /*
  * !IMPORTANT! Please follow instructions at start of the file
