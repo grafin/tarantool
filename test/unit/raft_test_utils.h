@@ -96,6 +96,8 @@ struct raft_node {
 	 */
 	bool is_work_blocked;
 
+	/** A bitmap of nodes which see the leader. */
+	vclock_map_t witness_map;
 	/**
 	 * Configuration options. Saved here for the sake of being able to
 	 * survive a restart.
@@ -229,6 +231,18 @@ raft_node_promote(struct raft_node *node);
  */
 void
 raft_node_restore(struct raft_node *node);
+
+/* Passed as a bitwise or to raft_node_notify_leader_seen. */
+enum raft_node_bits {
+	NODE_1 = 1 << 1,
+	NODE_2 = 1 << 2,
+	NODE_3 = 1 << 3,
+	/* Feel free to continue when needed. */
+};
+
+/** Tell node which of its peers sees the current leader. */
+void
+raft_node_notify_leader_seen(struct raft_node *node, vclock_map_t witness_map);
 
 /** Configuration methods. */
 

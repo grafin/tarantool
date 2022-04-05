@@ -300,6 +300,8 @@ replica_clear_id(struct replica *replica)
 		assert(replicaset.is_joining);
 		instance_id = REPLICA_ID_NIL;
 		box_broadcast_id();
+	} else {
+		raft_notify_leader_seen(box_raft(), false, replica->id);
 	}
 	replica->id = REPLICA_ID_NIL;
 	say_info("removed replica %s", tt_uuid_str(&replica->uuid));
@@ -370,6 +372,8 @@ replica_on_applier_off(struct replica *replica)
 		replicaset.healthy_count--;
 		replicaset_check_healthy_quorum();
 	}
+	if (replica->id != REPLICA_ID_NIL)
+		raft_notify_leader_seen(box_raft(), false, replica->id);
 }
 
 void

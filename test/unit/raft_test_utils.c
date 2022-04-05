@@ -32,6 +32,7 @@
 #include "raft/raft_ev.h"
 #include "raft_test_utils.h"
 #include "random.h"
+#include "bit/bit.h"
 
 #include <fcntl.h>
 
@@ -51,6 +52,13 @@ void
 raft_ev_timer_stop(struct ev_loop *loop, struct ev_timer *watcher)
 {
 	fakeev_timer_stop(loop, watcher);
+}
+
+double
+raft_ev_now(struct ev_loop *loop)
+{
+	(void)loop;
+	return raft_time();
 }
 
 struct ev_loop *
@@ -424,6 +432,21 @@ raft_node_restore(struct raft_node *node)
 	assert(raft_node_is_started(node));
 	raft_restore(&node->raft);
 	raft_run_async_work();
+}
+
+void
+raft_node_notify_leader_seen(struct raft_node *node, vclock_map_t witness_map)
+{
+	node->witness_map = witness_map;
+	if (raft_node_is_started(node)) {
+		for (size_t i = 1; i < CHAR_BIT * sizeof(witness_map); i++) {
+			if (i == node->cfg_instance_id)
+				continue;
+			raft_notify_leader_seen(&node->raft,
+						bit_test(&witness_map, i), i);
+		}
+		raft_run_async_work();
+	}
 }
 
 void

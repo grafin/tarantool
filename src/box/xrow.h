@@ -315,6 +315,7 @@ xrow_decode_synchro(const struct xrow_header *row, struct synchro_request *req);
 struct raft_request {
 	uint64_t term;
 	uint32_t vote;
+	uint32_t leader;
 	uint64_t state;
 	const struct vclock *vclock;
 };
