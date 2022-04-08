@@ -40,6 +40,7 @@
 #include "tt_uuid.h"
 #include "vclock/vclock.h"
 #include "latch.h"
+#include "datetime.h"
 
 /**
  * @module replication - global state of multi-master
@@ -248,6 +249,10 @@ struct replicaset {
 	 */
 	int registered_count;
 	/**
+	 * Number of replicas that did subscribe to leader at least ones.
+	 */
+	int accounted_count;
+	/**
 	 * Number of registered replicas, to which this node has a bidirectional
 	 * connection, such that both relay and applier are in FOLLOW state.
 	 * Used to notify various subsystems whether there is a quorum of
@@ -324,6 +329,24 @@ struct replica {
 	 * registered in the _cluster space yet.
 	 */
 	uint32_t id;
+	/**
+	 * When the replica was registered (got its current ID).
+	 */
+	struct datetime registered_ts;
+	/**
+	 * UUID of replica, which registered this replica
+	 * (assigned its current ID).
+	 */
+	struct tt_uuid registered_by;
+	/**
+	 * When the replica subscribed to RW RAFT leader.
+	 */
+	struct datetime initially_subscribed_ts;
+	/**
+	 * UUID of the first RW RAFT leader this repilica subscribed to.
+	 */
+	struct tt_uuid initially_subscribed_by;
+
 	/**
 	 * Whether this is an anonymous replica, e.g. a read-only
 	 * replica that doesn't have an id and isn't present in
@@ -517,8 +540,17 @@ replica_on_relay_stop(struct replica *replica);
 #if defined(__cplusplus)
 } /* extern "C" */
 
-int
-replica_check_id(uint32_t replica_id);
+/**
+ * Check if replica_id is in correct range.
+ */
+bool
+replica_id_is_valid(uint32_t replica_id);
+
+/**
+ * Check if replica_id can be updated in _cluster space right now.
+ */
+bool
+replica_id_is_updatable(uint32_t replica_id);
 
 /**
  * Register the universally unique identifier of a remote replica and
@@ -581,6 +613,12 @@ replicaset_sync(void);
  */
 void
 replicaset_check_quorum(void);
+
+/**
+ * Update replica information, based on tuple, inserted into _cluster space.
+ */
+struct replica *
+replica_update_from_tuple(struct replica *replica, struct tuple *tuple);
 
 #endif /* defined(__cplusplus) */
 

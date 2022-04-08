@@ -184,6 +184,14 @@ struct txn_limbo {
 	 * by the 'reversed rollback order' rule - contradiction.
 	 */
 	bool is_in_rollback;
+	/**
+	 * Whether the limbo is freezed. This mode prevents CONFIRMs and
+	 * ROLLBACKs being written by this instance. This mode is turned on when
+	 * quorum is lost if this instance is the current RAFT leader and
+	 * fencing is enabled. Instance leaves this mode when it becomes leader
+	 * again. Or RAFT is turned off.
+	 */
+	bool freezed;
 };
 
 /**
@@ -375,6 +383,18 @@ txn_limbo_write_demote(struct txn_limbo *limbo, int64_t lsn, uint64_t term);
  */
 void
 txn_limbo_on_parameters_change(struct txn_limbo *limbo);
+
+/**
+ * Freeze limbo. Prevent CONFIRMs and ROLLBACKs until limbo is unfrozen.
+ */
+void
+txn_limbo_freeze(struct txn_limbo *limbo);
+
+/**
+ * Unfreeze limbo. Continue limbo processing as usual.
+ */
+void
+txn_limbo_unfreeze(struct txn_limbo *limbo);
 
 /**
  * Initialize qsync engine.

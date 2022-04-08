@@ -266,6 +266,7 @@ void box_set_vinyl_cache(void);
 void box_set_vinyl_timeout(void);
 int box_set_election_mode(void);
 int box_set_election_timeout(void);
+int box_set_election_fencing(void);
 void box_set_replication_timeout(void);
 void box_set_replication_connect_timeout(void);
 void box_set_replication_connect_quorum(void);
@@ -586,6 +587,13 @@ box_broadcast_election(void);
  */
 void
 box_broadcast_schema(void);
+
+/**
+ * Called when replica is connected with relay and applier to this node.
+ * Updates replica state in _cluster space.
+ */
+void
+box_on_follow(const uint32_t replica_id);
 
 #if defined(__cplusplus)
 } /* extern "C" */

@@ -546,6 +546,7 @@ raft_process_msg(struct raft *raft, const struct raft_msg *req, uint32_t source)
 			say_info("RAFT: the node %u has resigned from the "
 				 "leader role", raft->leader);
 			raft_clear_leader(raft);
+			raft_ev_timer_stop(raft_loop(), &raft->timer);
 		}
 		return 0;
 	}
@@ -1087,6 +1088,15 @@ raft_promote(struct raft *raft)
 }
 
 void
+raft_resign(struct raft *raft)
+{
+	if (raft->state != RAFT_STATE_LEADER)
+		return;
+	say_warn("RAFT: resigning from leader state, because of quorum loss");
+	raft_stop_candidate(raft);
+}
+
+void
 raft_restore(struct raft *raft)
 {
 	raft_set_candidate(raft, raft->is_cfg_candidate && raft->is_enabled);
@@ -1185,6 +1195,15 @@ raft_cfg_cluster_size(struct raft *raft, int size)
 }
 
 void
+raft_cfg_election_fencing(struct raft *raft, bool enabled)
+{
+	if (enabled)
+		raft_fencing_enable(raft);
+	else
+		raft_fencing_disable(raft);
+}
+
+void
 raft_new_term(struct raft *raft)
 {
 	raft_sm_schedule_new_term(raft, raft->volatile_term + 1);
@@ -1265,6 +1284,7 @@ raft_create(struct raft *raft, const struct raft_vtab *vtab)
 		.max_shift = 0.1,
 		.cluster_size = VCLOCK_MAX,
 		.vtab = vtab,
+		.fencing_enabled = true,
 	};
 	raft_ev_timer_init(&raft->timer, raft_sm_election_update_cb,
 			   0, 0);
@@ -1277,4 +1297,18 @@ raft_destroy(struct raft *raft)
 {
 	raft_ev_timer_stop(raft_loop(), &raft->timer);
 	trigger_destroy(&raft->on_update);
+}
+
+void
+raft_fencing_enable(struct raft *raft)
+{
+	raft->fencing_enabled = true;
+	say_info("RAFT: fencing enabled");
+}
+
+void
+raft_fencing_disable(struct raft *raft)
+{
+	raft->fencing_enabled = false;
+	say_info("RAFT: fencing disabled");
 }

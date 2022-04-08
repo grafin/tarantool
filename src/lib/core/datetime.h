@@ -8,6 +8,7 @@
 #include <limits.h>
 #include <stdint.h>
 #include <sys/types.h>
+#include <stdbool.h>
 
 #if defined(__cplusplus)
 extern "C" {
@@ -70,6 +71,12 @@ struct datetime {
 	int16_t tzindex;
 };
 
+/**
+ * Datetime struct initialized with zeroes.
+ * Coresponds to 1970-01-01 00:00:00.
+ */
+extern const struct datetime datetime_nil;
+
 /*
  * Compare arguments of a datetime type
  * @param lhs left datetime argument
@@ -80,6 +87,18 @@ struct datetime {
  */
 int
 datetime_compare(const struct datetime *lhs, const struct datetime *rhs);
+
+/**
+ * Test that datetime is nil.
+ * @param date datetime to be tested.
+ * @retval true If date is equal to datetime_nil.
+ * @retval false Otherwise.
+ */
+inline bool
+datetime_is_nil(const struct datetime *date)
+{
+	return datetime_compare(date, &datetime_nil) == 0;
+}
 
 /**
  * Convert datetime to string using default format

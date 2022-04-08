@@ -244,6 +244,11 @@ struct raft {
 	 * changed.
 	 */
 	struct rlist on_update;
+	/**
+	 * Flag whether Raft leader fencing is enabled. If enabled leader will
+	 * resign when it looses quorum for any reason.
+	 */
+	bool fencing_enabled;
 };
 
 /**
@@ -333,6 +338,13 @@ void
 raft_promote(struct raft *raft);
 
 /**
+ * Resign from RAFT leadership. Become follower in current term.
+ * Don't start new term until quorum is reobtained.
+ */
+void
+raft_resign(struct raft *raft);
+
+/**
  * Restore the instance role according to its config. In particular, if it was
  * promoted and elected in the current term despite its config, restoration
  * makes it a follower.
@@ -384,6 +396,10 @@ raft_cfg_vclock(struct raft *raft, const struct vclock *vclock);
 void
 raft_cfg_cluster_size(struct raft *raft, int size);
 
+/** Enable/disable RAFT leader fencing. */
+void
+raft_cfg_election_fencing(struct raft *raft, bool enabled);
+
 /**
  * Bump the term. When it is persisted, the node checks if there is a leader,
  * and if there is not, a new election is started. That said, this function can
@@ -422,6 +438,18 @@ raft_create(struct raft *raft, const struct raft_vtab *vtab);
 
 void
 raft_destroy(struct raft *raft);
+
+/**
+ * Enable fencing. Node will resign its leader role, if it looses quorum.
+ */
+void
+raft_fencing_enable(struct raft *raft);
+
+/**
+ * Disable fencing. Node won't resign its leader role, if it looses quorum.
+ */
+void
+raft_fencing_disable(struct raft *raft);
 
 #if defined(__cplusplus)
 }

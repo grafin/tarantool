@@ -20,6 +20,8 @@
 #define MOD(a, b) unlikely(a < 0) ? (b + (a % b)) : (a % b)
 #define DIV(a, b) unlikely(a < 0) ? ((a - b + 1) / b) : (a / b)
 
+const struct datetime datetime_nil;
+
 /**
  * Given the seconds from Epoch (1970-01-01) we calculate date
  * since Rata Die (0001-01-01).
