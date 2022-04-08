@@ -51,6 +51,7 @@ txn_limbo_create(struct txn_limbo *limbo)
 	limbo->confirmed_lsn = 0;
 	limbo->rollback_count = 0;
 	limbo->is_in_rollback = false;
+	limbo->freezed = false;
 }
 
 bool
@@ -229,6 +230,8 @@ txn_limbo_wait_complete(struct txn_limbo *limbo, struct txn_limbo_entry *entry)
 		double deadline = start_time + replication_synchro_timeout;
 		double timeout = deadline - fiber_clock();
 		int rc = fiber_cond_wait_timeout(&limbo->wait_cond, timeout);
+		if (limbo->freezed)
+			goto wait;
 		if (txn_limbo_entry_is_complete(entry))
 			goto complete;
 		if (rc != 0)
@@ -547,6 +550,8 @@ txn_limbo_ack(struct txn_limbo *limbo, uint32_t replica_id, int64_t lsn)
 {
 	if (rlist_empty(&limbo->queue))
 		return;
+	if (limbo->freezed)
+		return;
 	/*
 	 * If limbo is currently writing a rollback, it means that the whole
 	 * queue will be rolled back. Because rollback is written only for
@@ -816,7 +821,8 @@ txn_limbo_on_parameters_change(struct txn_limbo *limbo)
 			assert(confirm_lsn > 0);
 		}
 	}
-	if (confirm_lsn > limbo->confirmed_lsn && !limbo->is_in_rollback) {
+	if (confirm_lsn > limbo->confirmed_lsn &&
+	    !limbo->is_in_rollback && !limbo->freezed) {
 		txn_limbo_write_confirm(limbo, confirm_lsn);
 		txn_limbo_read_confirm(limbo, confirm_lsn);
 	}
@@ -828,6 +834,18 @@ txn_limbo_on_parameters_change(struct txn_limbo *limbo)
 	 * sync transactions can live on replica infinitely.
 	 */
 	fiber_cond_broadcast(&limbo->wait_cond);
+}
+
+void
+txn_limbo_freeze(struct txn_limbo *limbo)
+{
+	limbo->freezed = true;
+}
+
+void
+txn_limbo_unfreeze(struct txn_limbo *limbo)
+{
+	limbo->freezed = false;
 }
 
 void

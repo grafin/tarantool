@@ -40,6 +40,9 @@ f = fiber.create(sloppy);
 -- when the sloppy fiber ends, its session has an active transction
 -- ensure it's rolled back automatically
 while f:status() ~= 'dead' do fiber.sleep(0) end;
+
+uuid = '00000000-0000-0000-0000-000000000001'
+
 -- transactions and system spaces
 box.begin() box.schema.space.create('test') box.rollback();
 box.begin() box.schema.user.create('test') box.rollback();
@@ -50,7 +53,7 @@ box.begin() box.space._space:delete{space.id} box.rollback();
 box.begin() box.space._space:delete{space.id} box.commit();
 box.begin() box.space._sequence:insert{1, 1, 'test', 1, 1, 2, 1, 0, false} box.rollback();
 box.begin() box.space._schema:insert{'test'} box.rollback();
-box.begin() box.space._cluster:insert{30, '00000000-0000-0000-0000-000000000001'} box.rollback();
+box.begin() box.space._cluster:insert{30, uuid, uuid} box.rollback();
 s = box.schema.space.create('test');
 box.begin() index = s:create_index('primary') box.rollback();
 index = s:create_index('primary');

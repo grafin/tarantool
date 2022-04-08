@@ -42,6 +42,8 @@
 #include "raft.h"
 #include "relay.h"
 #include "sio.h"
+#include "tuple.h"
+#include "schema_def.h"
 
 uint32_t instance_id = REPLICA_ID_NIL;
 struct tt_uuid INSTANCE_UUID;
@@ -134,19 +136,25 @@ replication_free(void)
 	applier_free();
 }
 
-int
-replica_check_id(uint32_t replica_id)
+bool
+replica_id_is_valid(uint32_t replica_id)
 {
 	if (replica_id == REPLICA_ID_NIL) {
 		diag_set(ClientError, ER_REPLICA_ID_IS_RESERVED,
 			  (unsigned) replica_id);
-		return -1;
+		return false;
 	}
 	if (replica_id >= VCLOCK_MAX) {
 		diag_set(ClientError, ER_REPLICA_MAX,
 			  (unsigned) replica_id);
-		return -1;
+		return false;
 	}
+	return true;
+}
+
+bool
+replica_id_is_updatable(uint32_t replica_id)
+{
 	/*
 	 * It's okay to update the instance id while it is joining to
 	 * a cluster as long as the id is set by the time bootstrap is
@@ -160,9 +168,9 @@ replica_check_id(uint32_t replica_id)
 	if (!replicaset.is_joining && replica_id == instance_id) {
 		diag_set(ClientError, ER_LOCAL_INSTANCE_ID_IS_READ_ONLY,
 			  (unsigned) replica_id);
-		return -1;
+		return false;
 	}
-	return 0;
+	return true;
 }
 
 /* Return true if replica doesn't have id, relay and applier */
@@ -192,6 +200,7 @@ replica_new(void)
 		diag_raise();
 	}
 	replica->id = 0;
+	replica->initially_subscribed_by = uuid_nil;
 	replica->anon = false;
 	replica->uuid = uuid_nil;
 	replica->applier = NULL;
@@ -358,6 +367,7 @@ replica_on_applier_follow(struct replica *replica)
 	replica->is_applier_healthy = true;
 	if (replica->is_relay_healthy && !replica->anon) {
 		replicaset.healthy_count++;
+		box_on_follow(replica->id);
 		replicaset_check_healthy_quorum();
 	}
 }
@@ -1014,6 +1024,7 @@ replica_on_relay_follow(struct replica *replica)
 	replica->is_relay_healthy = true;
 	if (replica->is_applier_healthy && !replica->anon) {
 		replicaset.healthy_count++;
+		box_on_follow(replica->id);
 		replicaset_check_healthy_quorum();
 	}
 }
@@ -1162,4 +1173,21 @@ replica_find_new_id(uint32_t *replica_id)
 	}
 	diag_set(ClientError, ER_REPLICA_MAX, VCLOCK_MAX);
 	return -1;
+}
+
+struct replica *
+replica_update_from_tuple(struct replica *replica, struct tuple *tuple)
+{
+	struct tt_uuid uuid;
+
+	if (tuple_field_uuid(tuple, BOX_CLUSTER_FIELD_INITIALLY_SUBSCRIBED_BY,
+			     &uuid) == 0) {
+		if (tt_uuid_is_nil(&replica->initially_subscribed_by) &&
+		    !tt_uuid_is_nil(&uuid)) {
+			replicaset.accounted_count++;
+		}
+		replica->initially_subscribed_by = uuid;
+	}
+
+	return replica;
 }

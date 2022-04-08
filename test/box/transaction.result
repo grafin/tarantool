@@ -84,6 +84,8 @@ while f:status() ~= 'dead' do fiber.sleep(0) end;
 ---
 ...
 -- transactions and system spaces
+uuid = '00000000-0000-0000-0000-000000000001'
+
 box.begin() box.schema.space.create('test') box.rollback();
 ---
 ...
@@ -111,7 +113,7 @@ box.begin() box.space._sequence:insert{1, 1, 'test', 1, 1, 2, 1, 0, false} box.r
 box.begin() box.space._schema:insert{'test'} box.rollback();
 ---
 ...
-box.begin() box.space._cluster:insert{30, '00000000-0000-0000-0000-000000000001'} box.rollback();
+box.begin() box.space._cluster:insert{30, uuid, uuid} box.rollback();
 ---
 ...
 s = box.schema.space.create('test');

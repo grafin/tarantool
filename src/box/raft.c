@@ -34,6 +34,7 @@
 #include "raft.h"
 #include "relay.h"
 #include "replication.h"
+#include "txn_limbo.h"
 #include "xrow.h"
 
 struct raft box_raft_global = {
@@ -254,6 +255,26 @@ box_raft_cfg_election_mode(enum election_mode mode)
 }
 
 /**
+ * Enter fencing mode: resign RAFT leadership, freeze limbo (don't write
+ * rollbacks nor confirms).
+ * Additionally check that current count of healthy
+ * replicas is less than replicas that were following raft leader at least
+ * once, this prevents resigning leadership while adding more replicas to
+ * replicaset and initial bootstraping.
+ */
+static void
+box_raft_fence(void)
+{
+	struct raft *raft = box_raft();
+	if (!raft->is_enabled || !raft->fencing_enabled)
+		return;
+	if (replicaset.healthy_count < replicaset.accounted_count) {
+		txn_limbo_freeze(&txn_limbo);
+		raft_resign(raft);
+	}
+}
+
+/**
  * Configure the raft node according to whether it has a quorum of connected
  * peers or not. It can't start elections, when it doesn't.
  */
@@ -261,24 +282,20 @@ static void
 box_raft_notify_have_quorum(void)
 {
 	struct raft *raft = box_raft();
+	bool has_healthy_quorum = replicaset_has_healthy_quorum();
 	switch (box_election_mode) {
 	case ELECTION_MODE_MANUAL:
 		/* Quorum loss shouldn't interfere with manual elections. */
-		/*
-		 * TODO: make a manually elected leader step off immediately due
-		 * to fencing.
-		 */
 		assert(!raft->is_cfg_candidate);
+		if (!has_healthy_quorum)
+			box_raft_fence();
 		break;
 	case ELECTION_MODE_CANDIDATE:
-		if (replicaset_has_healthy_quorum()) {
+		if (has_healthy_quorum) {
 			raft_cfg_is_candidate(raft, true);
 		} else if (raft->state == RAFT_STATE_CANDIDATE ||
 			   raft->state == RAFT_STATE_LEADER) {
-			/*
-			 * TODO: make the leader step off immediately due to
-			 * fencing.
-			 */
+			box_raft_fence();
 			raft_schedule_is_candidate(raft, false);
 		} else {
 			raft_cfg_is_candidate(raft, false);

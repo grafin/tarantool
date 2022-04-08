@@ -1225,6 +1225,29 @@ end
 local function upgrade_to_2_10_1()
     grant_rw_access_on__session_settings_to_role_public()
 end
+
+--------------------------------------------------------------------------------
+-- Tarantool 2.10.2
+--------------------------------------------------------------------------------
+local function add_initial_leader_uuid_to_cluster_space()
+    log.info("Extend _cluster space format with initial leader uuid")
+
+    local uuid_nil = require('uuid').NULL:str()
+    local _cluster = box.space._cluster
+    for _, tuple in _cluster:pairs() do
+        _cluster:update({tuple[1]},
+                        {{'=', 3, tuple[3] == nil and uuid_nil or tuple[3]}})
+    end
+
+    local format = {{name = 'id', type = 'unsigned'},
+                    {name = 'uuid', type = 'string'},
+                    {name = 'init_sub_by', type = 'string'}}
+    _cluster:format(format)
+end
+
+local function upgrade_to_2_10_2()
+    add_initial_leader_uuid_to_cluster_space()
+end
 --------------------------------------------------------------------------------
 
 local handlers = {
@@ -1243,6 +1266,7 @@ local handlers = {
     {version = mkversion(2, 7, 1), func = upgrade_to_2_7_1, auto = true},
     {version = mkversion(2, 9, 1), func = upgrade_to_2_9_1, auto = true},
     {version = mkversion(2, 10, 1), func = upgrade_to_2_10_1, auto = true},
+    {version = mkversion(2, 10, 2), func = upgrade_to_2_10_2, auto = true},
 }
 
 -- Schema version of the snapshot.

@@ -795,6 +795,12 @@ box_check_election_timeout(void)
 	return d;
 }
 
+static bool
+box_check_election_fencing(void)
+{
+	return (bool)cfg_getb("election_fencing");
+}
+
 static int
 box_check_uri_set(const char *option_name)
 {
@@ -1378,6 +1384,17 @@ box_set_election_timeout(void)
 	if (d < 0)
 		return -1;
 	raft_cfg_election_timeout(box_raft(), d);
+	return 0;
+}
+
+int
+box_set_election_fencing(void)
+{
+	bool fencing_enabled = box_check_election_fencing();
+	raft_cfg_election_fencing(box_raft(), fencing_enabled);
+	replicaset_check_healthy_quorum();
+	if (!fencing_enabled)
+		txn_limbo_unfreeze(&txn_limbo);
 	return 0;
 }
 
@@ -2728,12 +2745,25 @@ box_session_push(const char *data, const char *data_end)
 	return rc;
 }
 
-static inline void
+static void
 box_register_replica(uint32_t id, const struct tt_uuid *uuid)
 {
-	if (boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "[%u%s]",
-		 (unsigned) id, tt_uuid_str(uuid)) != 0)
+	char uuid_self_buf[UUID_STR_LEN + 1] = {};
+	char uuid_nil_buf[UUID_STR_LEN + 1] = {};
+	tt_uuid_to_string(&INSTANCE_UUID, uuid_self_buf);
+	tt_uuid_to_string(&uuid_nil, uuid_nil_buf);
+
+	/**
+	 * If registering itself (being bootstrap master id == 1) - also treat
+	 * as initial successful connection.
+	 */
+	int rc = boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "[%u%s%s]",
+		      (unsigned)id,
+		      tt_uuid_str(uuid),
+		      id == 1 ? uuid_self_buf : uuid_nil_buf);
+	if (rc != 0)
 		diag_raise();
+
 	assert(replica_by_uuid(uuid)->id == id);
 }
 
@@ -2756,6 +2786,53 @@ box_on_join(const tt_uuid *instance_uuid)
 	if (replica_find_new_id(&replica_id) != 0)
 		diag_raise();
 	box_register_replica(replica_id, instance_uuid);
+}
+
+/**
+ * @brief Called when replica is fully connected to rw raft leader.
+ * Updates initially_subscribed_by field in _cluster space if this is first
+ * successful subscription to RAFT leader.
+ * @param instance_id
+ */
+static void
+box_on_leader_follow(const uint32_t replica_id)
+{
+	assert(replica_id != REPLICA_ID_NIL);
+	assert(raft_is_enabled(box_raft()));
+	struct replica *replica = replica_by_id(replica_id);
+	assert(replica != NULL);
+
+	box_check_writable_xc();
+	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
+	access_check_space_xc(space, PRIV_W);
+
+	/**
+	 * For now only update replica on initial subscribe.
+	 */
+	if (!tt_uuid_is_nil(&replica->initially_subscribed_by))
+		return;
+
+	char *uuid_buf = tt_uuid_str(&INSTANCE_UUID);
+
+	int rc = boxk(IPROTO_UPDATE, BOX_CLUSTER_ID,
+		      "[%u][[%s%u%s]]",
+		      (unsigned)replica->id,
+		      "=", BOX_CLUSTER_FIELD_INITIALLY_SUBSCRIBED_BY, uuid_buf);
+	if (rc != 0)
+		diag_raise();
+}
+
+void
+box_on_follow(const uint32_t replica_id)
+{
+	if (replica_id == REPLICA_ID_NIL)
+		return;
+
+	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
+	if (!box_is_ro() && raft_is_enabled(box_raft()) &&
+	    access_check_space(space, PRIV_W) == 0) {
+		box_on_leader_follow(replica_id);
+	}
 }
 
 void
@@ -3892,6 +3969,8 @@ box_cfg_xc(void)
 	raft_cfg_vclock(raft, &replicaset.vclock);
 
 	if (box_set_election_timeout() != 0)
+		diag_raise();
+	if (box_set_election_fencing() != 0)
 		diag_raise();
 	/*
 	 * Election is enabled last. So as all the parameters are installed by
