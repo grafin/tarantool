@@ -1893,10 +1893,158 @@ raft_test_split_vote(void)
 	raft_finish_test();
 }
 
+static void
+raft_test_pre_vote(void)
+{
+	raft_start_test(20);
+	struct raft_node node;
+	raft_node_create(&node);
+
+	/* Check leader_idle calculations. */
+	is(raft_node_send_leader(&node,
+				 2 /* Term. */,
+				 2 /* Source. */
+	), 0, "leader notification");
+
+	is(raft_leader_idle(&node.raft), 0, "leader just appeared");
+
+	raft_run_for(node.cfg_death_timeout / 2);
+	is(raft_leader_idle(&node.raft), node.cfg_death_timeout / 2,
+	   "leader_idle increased");
+
+	raft_node_send_heartbeat(&node, 2);
+
+	is(raft_leader_idle(&node.raft), 0, "heartbeat resets idle counter");
+
+	raft_node_cfg_is_candidate(&node, false);
+
+	ok(raft_ev_is_active(&node.raft.timer), "voter tracks leader death");
+
+	raft_run_for(2 * node.cfg_death_timeout);
+
+	ok(raft_node_check_full_state(&node,
+				      RAFT_STATE_FOLLOWER /* State. */,
+				      2 /* Leader. */,
+				      2 /* Term. */,
+				      0 /* Vote. */,
+				      2 /* Volatile term. */,
+				      0 /* Volatile vote. */,
+				      "{0: 1}" /* Vclock. */
+	), "leader still remembered");
+
+	is(raft_leader_idle(&node.raft), 2 * node.cfg_death_timeout,
+	   "idle increased");
+
+	raft_node_send_heartbeat(&node, 2);
+	is(raft_leader_idle(&node.raft), 0, "heartbeat resets idle");
+	ok(raft_ev_is_active(&node.raft.timer), "heartbeat restarts timer");
+
+	raft_node_cfg_is_candidate(&node, true);
+
+	raft_node_notify_is_leader_seen(&node, true, 3);
+
+	raft_run_for(2 * node.cfg_death_timeout);
+	is(raft_leader_idle(&node.raft), 2 * node.cfg_death_timeout,
+	   "leader not seen");
+	ok(!raft_ev_is_active(&node.raft.timer), "timed out");
+	ok(raft_node_check_full_state(&node,
+				      RAFT_STATE_FOLLOWER /* State. */,
+				      2 /* Leader. */,
+				      2 /* Term. */,
+				      0 /* Vote. */,
+				      2 /* Volatile term. */,
+				      0 /* Volatile vote. */,
+				      "{0: 1}" /* Vclock. */
+	), "no elections when leader seen indirectly");
+	raft_node_notify_is_leader_seen(&node, false, 3);
+	ok(raft_node_check_full_state(&node,
+				      RAFT_STATE_CANDIDATE /* State. */,
+				      0 /* Leader. */,
+				      3 /* Term. */,
+				      1 /* Vote. */,
+				      3 /* Volatile term. */,
+				      1 /* Volatile vote. */,
+				      "{0: 2}" /* Vclock. */
+	), "elections once no one sees the leader");
+
+	raft_node_cfg_election_quorum(&node, 1);
+
+	ok(raft_node_check_full_state(&node,
+				      RAFT_STATE_LEADER /* State. */,
+				      1 /* Leader. */,
+				      3 /* Term. */,
+				      1 /* Vote. */,
+				      3 /* Volatile term. */,
+				      1 /* Volatile vote. */,
+				      "{0: 2}" /* Vclock. */
+	), "become leader on quorum change");
+
+	raft_cfg_is_candidate_later(&node.raft, false);
+
+	ok(raft_node_check_full_state(&node,
+				      RAFT_STATE_LEADER /* State. */,
+				      1 /* Leader. */,
+				      3 /* Term. */,
+				      1 /* Vote. */,
+				      3 /* Volatile term. */,
+				      1 /* Volatile vote. */,
+				      "{0: 2}" /* Vclock. */
+	), "cfg_is_candidate_later doesn't disrupt leader");
+
+	is(raft_node_send_follower(&node,
+				   4 /* Term. */,
+				   2 /* Source. */
+	), 0, "accept term bump");
+
+	raft_run_for(node.cfg_death_timeout * 2);
+
+	ok(raft_node_check_full_state(&node,
+				      RAFT_STATE_FOLLOWER /* State. */,
+				      0 /* Leader. */,
+				      4 /* Term. */,
+				      0 /* Vote. */,
+				      4 /* Volatile term. */,
+				      0 /* Volatile vote. */,
+				      "{0: 3}" /* Vclock. */
+	), "Term bump after cfg_is_candidate_later makes node a voter.");
+
+	raft_cfg_is_candidate_later(&node.raft, true);
+
+	ok(raft_node_check_full_state(&node,
+				      RAFT_STATE_FOLLOWER /* State. */,
+				      0 /* Leader. */,
+				      4 /* Term. */,
+				      0 /* Vote. */,
+				      4 /* Volatile term. */,
+				      0 /* Volatile vote. */,
+				      "{0: 3}" /* Vclock. */
+	), "cfg_is_candidate_later doesn't transfer voter to a candidate");
+
+	is(raft_node_send_follower(&node,
+				   5 /* Term. */,
+				   2 /* Source. */
+	), 0, "accept term bump");
+
+	raft_run_for(node.cfg_death_timeout);
+
+	ok(raft_node_check_full_state(&node,
+				      RAFT_STATE_LEADER /* State. */,
+				      1 /* Leader. */,
+				      5 /* Term. */,
+				      1 /* Vote. */,
+				      5 /* Volatile term. */,
+				      1 /* Volatile vote. */,
+				      "{0: 5}" /* Vclock. */
+	), "Term bump with cfg_is_candidate_later transfers voter to candiate");
+
+	raft_node_destroy(&node);
+	raft_finish_test();
+}
+
 static int
 main_f(va_list ap)
 {
-	raft_start_test(16);
+	raft_start_test(17);
 
 	(void) ap;
 	fakeev_init();
@@ -1917,6 +2065,7 @@ main_f(va_list ap)
 	raft_test_promote_restore();
 	raft_test_bump_term_before_cfg();
 	raft_test_split_vote();
+	raft_test_pre_vote();
 
 	fakeev_free();
 

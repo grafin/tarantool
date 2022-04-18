@@ -53,6 +53,13 @@ raft_ev_timer_stop(struct ev_loop *loop, struct ev_timer *watcher)
 	fakeev_timer_stop(loop, watcher);
 }
 
+double
+raft_ev_now(struct ev_loop *loop)
+{
+	(void)loop;
+	return raft_time();
+}
+
 struct ev_loop *
 raft_loop(void)
 {
@@ -424,6 +431,16 @@ raft_node_restore(struct raft_node *node)
 	assert(raft_node_is_started(node));
 	raft_restore(&node->raft);
 	raft_run_async_work();
+}
+
+void
+raft_node_notify_is_leader_seen(struct raft_node *node, bool is_seen,
+				uint32_t source)
+{
+	if (raft_node_is_started(node)) {
+		raft_notify_is_leader_seen(&node->raft, is_seen, source);
+		raft_run_async_work();
+	}
 }
 
 void

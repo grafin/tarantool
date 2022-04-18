@@ -230,6 +230,11 @@ raft_node_promote(struct raft_node *node);
 void
 raft_node_restore(struct raft_node *node);
 
+/** Tell node if its peers sees the current leader. */
+void
+raft_node_notify_is_leader_seen(struct raft_node *node, bool is_seen,
+				uint32_t source);
+
 /** Configuration methods. */
 
 void

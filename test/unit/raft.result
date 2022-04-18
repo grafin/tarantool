@@ -1,5 +1,5 @@
 	*** main_f ***
-1..16
+1..17
 	*** raft_test_leader_election ***
     1..24
     ok 1 - 1 pending message at start
@@ -341,4 +341,28 @@ ok 15 - subtests
     ok 64 - still waiting for yield
 ok 16 - subtests
 	*** raft_test_split_vote: done ***
+	*** raft_test_pre_vote ***
+    1..20
+    ok 1 - leader notification
+    ok 2 - leader just appeared
+    ok 3 - leader_idle increased
+    ok 4 - heartbeat resets idle counter
+    ok 5 - voter tracks leader death
+    ok 6 - leader still remembered
+    ok 7 - idle increased
+    ok 8 - heartbeat resets idle
+    ok 9 - heartbeat restarts timer
+    ok 10 - leader not seen
+    ok 11 - timed out
+    ok 12 - no elections when leader seen indirectly
+    ok 13 - elections once no one sees the leader
+    ok 14 - become leader on quorum change
+    ok 15 - cfg_is_candidate_later doesn't disrupt leader
+    ok 16 - accept term bump
+    ok 17 - Term bump after cfg_is_candidate_later makes node a voter.
+    ok 18 - cfg_is_candidate_later doesn't transfer voter to a candidate
+    ok 19 - accept term bump
+    ok 20 - Term bump with cfg_is_candidate_later transfers voter to candiate
+ok 17 - subtests
+	*** raft_test_pre_vote: done ***
 	*** main_f: done ***
