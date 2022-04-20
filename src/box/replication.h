@@ -517,8 +517,17 @@ replica_on_relay_stop(struct replica *replica);
 #if defined(__cplusplus)
 } /* extern "C" */
 
+/**
+ * Check if replica_id is in correct range.
+ */
 int
-replica_check_id(uint32_t replica_id);
+replica_check_id_is_valid(uint32_t replica_id);
+
+/**
+ * Check if replica_id can be updated in _cluster space right now.
+ */
+int
+replica_check_id_is_updatable(uint32_t replica_id);
 
 /**
  * Register the universally unique identifier of a remote replica and

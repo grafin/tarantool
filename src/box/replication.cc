@@ -135,7 +135,7 @@ replication_free(void)
 }
 
 int
-replica_check_id(uint32_t replica_id)
+replica_check_id_is_valid(uint32_t replica_id)
 {
 	if (replica_id == REPLICA_ID_NIL) {
 		diag_set(ClientError, ER_REPLICA_ID_IS_RESERVED,
@@ -147,6 +147,12 @@ replica_check_id(uint32_t replica_id)
 			  (unsigned) replica_id);
 		return -1;
 	}
+	return 0;
+}
+
+int
+replica_check_id_is_updatable(uint32_t replica_id)
+{
 	/*
 	 * It's okay to update the instance id while it is joining to
 	 * a cluster as long as the id is set by the time bootstrap is

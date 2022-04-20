@@ -4365,7 +4365,7 @@ on_replace_dd_cluster(struct trigger *trigger, void *event)
 		uint32_t replica_id;
 		if (tuple_field_u32(new_tuple, BOX_CLUSTER_FIELD_ID, &replica_id) != 0)
 			return -1;
-		if (replica_check_id(replica_id) != 0)
+		if (replica_check_id_is_valid(replica_id) != 0)
 			return -1;
 		tt_uuid replica_uuid;
 		if (tuple_field_uuid(new_tuple, BOX_CLUSTER_FIELD_UUID,
@@ -4434,7 +4434,8 @@ on_replace_dd_cluster(struct trigger *trigger, void *event)
 		uint32_t replica_id;
 		if (tuple_field_u32(old_tuple, BOX_CLUSTER_FIELD_ID, &replica_id) != 0)
 			return -1;
-		if (replica_check_id(replica_id) != 0)
+		if (replica_check_id_is_valid(replica_id) != 0 ||
+		    replica_check_id_is_updatable(replica_id) != 0)
 			return -1;
 		tt_uuid replica_uuid;
 		if (tuple_field_uuid(old_tuple, BOX_CLUSTER_FIELD_UUID,
