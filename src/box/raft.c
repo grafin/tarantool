@@ -34,6 +34,7 @@
 #include "raft.h"
 #include "relay.h"
 #include "replication.h"
+#include "txn_limbo.h"
 #include "xrow.h"
 
 struct raft box_raft_global = {
@@ -45,6 +46,7 @@ struct raft box_raft_global = {
 };
 
 enum election_mode box_election_mode = ELECTION_MODE_INVALID;
+bool election_fencing;
 
 /**
  * A trigger executed each time the Raft state machine updates any
@@ -256,6 +258,26 @@ box_raft_cfg_election_mode(enum election_mode mode)
 }
 
 /**
+ * Enter fencing mode: resign RAFT leadership, freeze limbo (don't write
+ * rollbacks nor confirms).
+ * Additionally check that current count of healthy
+ * replicas is less than replicas that were following raft leader at least
+ * once, this prevents resigning leadership while adding more replicas to
+ * replicaset and initial bootstraping.
+ */
+static void
+box_raft_fence(void)
+{
+	struct raft *raft = box_raft();
+	if (!raft->is_enabled || !election_fencing)
+		return;
+	if (replicaset.healthy_count < replicaset.accounted_count) {
+		txn_limbo_freeze(&txn_limbo);
+		raft_resign(raft);
+	}
+}
+
+/**
  * Configure the raft node according to whether it has a quorum of connected
  * peers or not. It can't start elections, when it doesn't.
  */
@@ -263,25 +285,20 @@ static void
 box_raft_notify_have_quorum(void)
 {
 	struct raft *raft = box_raft();
+	bool has_healthy_quorum = replicaset_has_healthy_quorum();
 	switch (box_election_mode) {
 	case ELECTION_MODE_MANUAL:
 		/* Quorum loss shouldn't interfere with manual elections. */
-		/*
-		 * TODO: make a manually elected leader step off immediately due
-		 * to fencing.
-		 */
 		assert(!raft->is_cfg_candidate);
+		if (!has_healthy_quorum)
+			box_raft_fence();
 		break;
 	case ELECTION_MODE_CANDIDATE:
-		if (replicaset_has_healthy_quorum()) {
+		if (has_healthy_quorum) {
 			raft_cfg_is_candidate(raft, true);
 		} else if (raft->state == RAFT_STATE_CANDIDATE ||
 			   raft->state == RAFT_STATE_LEADER) {
-			/*
-			 * TODO: make the leader step off immediately due to
-			 * fencing.
-			 */
-			raft_cfg_is_candidate_later(raft, false);
+			box_raft_fence();
 		} else {
 			raft_cfg_is_candidate(raft, false);
 		}
@@ -523,8 +540,16 @@ box_raft_remove_quorum_triggers(void)
 }
 
 void
+box_raft_set_election_fencing(bool enabled)
+{
+	election_fencing = enabled;
+	say_info("RAFT: fencing %s", enabled ? "enabled" : "disabled");
+}
+
+void
 box_raft_init(void)
 {
+	election_fencing = true;
 	static const struct raft_vtab box_raft_vtab = {
 		.broadcast = box_raft_broadcast,
 		.write = box_raft_write,

@@ -799,6 +799,21 @@ box_check_election_timeout(void)
 	return d;
 }
 
+/**
+ * Raises error if election_fencing configuration is incorrect.
+ */
+static int
+box_check_election_fencing(void)
+{
+	int i = cfg_getb("election_fencing");
+	if (i < 0) {
+		diag_set(ClientError, ER_CFG, "election_fencing",
+			 "the value must be a boolean");
+		return -1;
+	}
+	return i;
+}
+
 static int
 box_check_uri_set(const char *option_name)
 {
@@ -1327,6 +1342,8 @@ box_check_config(void)
 		diag_raise();
 	if (box_check_election_timeout() < 0)
 		diag_raise();
+	if (box_check_election_fencing() < 0)
+		diag_raise();
 	if (box_check_replication() != 0)
 		diag_raise();
 	box_check_replication_timeout();
@@ -1382,6 +1399,20 @@ box_set_election_timeout(void)
 	if (d < 0)
 		return -1;
 	raft_cfg_election_timeout(box_raft(), d);
+	return 0;
+}
+
+int
+box_set_election_fencing(void)
+{
+	int fencing_enabled = box_check_election_fencing();
+	if (fencing_enabled < 0)
+		diag_raise();
+
+	box_raft_set_election_fencing((bool)fencing_enabled);
+	replicaset_check_healthy_quorum();
+	if (!fencing_enabled)
+		txn_limbo_unfreeze(&txn_limbo);
 	return 0;
 }
 
@@ -1919,6 +1950,7 @@ box_promote_qsync(void)
 		return -1;
 	}
 	box_issue_promote(txn_limbo.owner_id, wait_lsn);
+	txn_limbo_unfreeze(&txn_limbo);
 	return 0;
 }
 
@@ -3956,6 +3988,8 @@ box_cfg_xc(void)
 	raft_cfg_vclock(raft, &replicaset.vclock);
 
 	if (box_set_election_timeout() != 0)
+		diag_raise();
+	if (box_set_election_fencing() != 0)
 		diag_raise();
 	/*
 	 * Election is enabled last. So as all the parameters are installed by

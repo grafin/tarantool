@@ -52,13 +52,15 @@ txn_limbo_create(struct txn_limbo *limbo)
 	limbo->rollback_count = 0;
 	limbo->is_in_rollback = false;
 	limbo->svp_confirmed_lsn = -1;
+	limbo->frozen = false;
 }
 
 bool
 txn_limbo_is_ro(struct txn_limbo *limbo)
 {
-	return limbo->owner_id != REPLICA_ID_NIL &&
-	       limbo->owner_id != instance_id;
+	return limbo->frozen ||
+	       (limbo->owner_id != REPLICA_ID_NIL &&
+		limbo->owner_id != instance_id);
 }
 
 struct txn_limbo_entry *
@@ -235,6 +237,8 @@ txn_limbo_wait_complete(struct txn_limbo *limbo, struct txn_limbo_entry *entry)
 		double deadline = start_time + replication_synchro_timeout;
 		double timeout = deadline - fiber_clock();
 		int rc = fiber_cond_wait_timeout(&limbo->wait_cond, timeout);
+		if (limbo->frozen)
+			goto wait;
 		if (txn_limbo_entry_is_complete(entry))
 			goto complete;
 		if (rc != 0)
@@ -575,9 +579,11 @@ txn_limbo_read_demote(struct txn_limbo *limbo, int64_t lsn)
 void
 txn_limbo_ack(struct txn_limbo *limbo, uint32_t replica_id, int64_t lsn)
 {
-	assert(!txn_limbo_is_ro(limbo));
 	if (rlist_empty(&limbo->queue))
 		return;
+	if (limbo->frozen)
+		return;
+	assert(!txn_limbo_is_ro(limbo));
 	/*
 	 * If limbo is currently writing a rollback, it means that the whole
 	 * queue will be rolled back. Because rollback is written only for
@@ -918,7 +924,8 @@ txn_limbo_on_parameters_change(struct txn_limbo *limbo)
 			assert(confirm_lsn > 0);
 		}
 	}
-	if (confirm_lsn > limbo->confirmed_lsn && !limbo->is_in_rollback) {
+	if (confirm_lsn > limbo->confirmed_lsn &&
+	    !limbo->is_in_rollback && !limbo->frozen) {
 		txn_limbo_write_confirm(limbo, confirm_lsn);
 		txn_limbo_read_confirm(limbo, confirm_lsn);
 	}
@@ -930,6 +937,20 @@ txn_limbo_on_parameters_change(struct txn_limbo *limbo)
 	 * sync transactions can live on replica infinitely.
 	 */
 	fiber_cond_broadcast(&limbo->wait_cond);
+}
+
+void
+txn_limbo_freeze(struct txn_limbo *limbo)
+{
+	limbo->frozen = true;
+	box_update_ro_summary();
+}
+
+void
+txn_limbo_unfreeze(struct txn_limbo *limbo)
+{
+	limbo->frozen = false;
+	box_update_ro_summary();
 }
 
 void

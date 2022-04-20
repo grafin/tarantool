@@ -61,6 +61,12 @@ struct raft_request;
  */
 extern enum election_mode box_election_mode;
 
+/**
+ * Flag whether Raft leader fencing is enabled. If enabled leader will
+ * resign when it looses quorum for any reason.
+ */
+extern bool election_fencing;
+
 /** Raft state of this instance. */
 static inline struct raft *
 box_raft(void)
@@ -115,6 +121,13 @@ box_raft_wait_term_outcome(void);
 /** Block this fiber until the current volatile term is persisted. */
 int
 box_raft_wait_term_persisted(void);
+
+/**
+ * Enable/disable fencing. If enabled: instance will resign its leader role,
+ * when it looses quorum.
+ */
+void
+box_raft_set_election_fencing(bool enabled);
 
 void
 box_raft_init(void);
