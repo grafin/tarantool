@@ -82,32 +82,39 @@ print("-------------------------------------------------------------")
 
 master_uuid = server.get_param("uuid")
 sys.stdout.push_filter(master_uuid, "<master uuid>")
+new_uuid = "0d5bd431-7f3e-4695-a5c2-82de0a9cbc95"
 
 # Invalid UUID
-server.admin("box.space._cluster:replace{1, require('uuid').NULL:str()}")
+server.admin("""box.space._cluster:update(1, {
+    {'=', 2, require('uuid').NULL:str()}})""")
 
 # Update of UUID is not OK
-server.admin("box.space._cluster:replace{1, require('uuid').str()}")
+server.admin("""box.space._cluster:update(1, {
+    {'=', 2, require('uuid').str()}})""")
 
 # Update of tail is OK
-server.admin("box.space._cluster:update(1, {{'=', 3, 'test'}})")
+server.admin("""box.space._cluster:update(1, {{
+    {{'=', 3, '{0}'}}}})""".format(new_uuid))
 
 print("-------------------------------------------------------------")
 print("gh-1140: Assertion if replace _cluster tuple for remote server")
 print("-------------------------------------------------------------")
 
 # Test that insert is OK
-new_uuid = "0d5bd431-7f3e-4695-a5c2-82de0a9cbc95"
-server.admin("box.space._cluster:insert{{5, '{0}'}}".format(new_uuid))
+server.admin("""box.space._cluster:insert{{5, '{0}',
+    require('uuid').NULL:str()}}""".format(new_uuid))
 server.admin("box.info.vclock[5] == nil")
 
 # Replace with the same UUID is OK
-server.admin("box.space._cluster:replace{{5, '{0}'}}".format(new_uuid))
+server.admin("""box.space._cluster:replace{{5, '{0}',
+    require('uuid').NULL:str()}}""".format(new_uuid))
 # Replace with a new UUID is not OK
 new_uuid = "a48a19a3-26c0-4f8c-a5b5-77377bab389b"
-server.admin("box.space._cluster:replace{{5, '{0}'}}".format(new_uuid))
+server.admin("""box.space._cluster:replace{{5, '{0}',
+    require('uuid').NULL:str()}}""".format(new_uuid))
 # Update of tail is OK
-server.admin("box.space._cluster:update(5, {{'=', 3, 'test'}})")
+server.admin("""box.space._cluster:update(5, {{
+    {{'=', 3, '{0}'}}}})""".format(new_uuid))
 # Delete is OK
 server.admin("box.space._cluster:delete(5)")
 # gh-1219: LSN must not be removed from vclock on unregister

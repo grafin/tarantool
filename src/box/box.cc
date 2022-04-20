@@ -2724,12 +2724,23 @@ box_session_push(const char *data, const char *data_end)
 	return rc;
 }
 
-static inline void
+static void
 box_register_replica(uint32_t id, const struct tt_uuid *uuid)
 {
-	if (boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "[%u%s]",
-		 (unsigned) id, tt_uuid_str(uuid)) != 0)
+	char uuid_nil_buf[UUID_STR_LEN + 1] = {};
+	tt_uuid_to_string(&uuid_nil, uuid_nil_buf);
+
+	/**
+	 * If registering itself (being bootstrap master id == 1) - also treat
+	 * as initial successful connection.
+	 */
+	int rc = boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "[%u%s%s]",
+		      (unsigned)id,
+		      tt_uuid_str(uuid),
+		      id == 1 ? tt_uuid_str(uuid) : uuid_nil_buf);
+	if (rc != 0)
 		diag_raise();
+
 	assert(replica_by_uuid(uuid)->id == id);
 }
 
@@ -2752,6 +2763,53 @@ box_on_join(const tt_uuid *instance_uuid)
 	if (replica_find_new_id(&replica_id) != 0)
 		diag_raise();
 	box_register_replica(replica_id, instance_uuid);
+}
+
+/**
+ * @brief Called when replica is fully connected to rw raft leader.
+ * Updates initially_subscribed_by field in _cluster space if this is first
+ * successful subscription to RAFT leader.
+ * @param replica_id
+ */
+static void
+box_on_leader_follow(const uint32_t replica_id)
+{
+	assert(replica_id != REPLICA_ID_NIL);
+	assert(raft_is_enabled(box_raft()));
+	struct replica *replica = replica_by_id(replica_id);
+	assert(replica != NULL);
+
+	box_check_writable_xc();
+	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
+	access_check_space_xc(space, PRIV_W);
+
+	/**
+	 * For now only update replica on initial subscribe.
+	 */
+	if (!tt_uuid_is_nil(&replica->initially_subscribed_by))
+		return;
+
+	char *uuid_buf = tt_uuid_str(&INSTANCE_UUID);
+
+	int rc = boxk(IPROTO_UPDATE, BOX_CLUSTER_ID,
+		      "[%u][[%s%u%s]]",
+		      (unsigned)replica->id,
+		      "=", BOX_CLUSTER_FIELD_INITIALLY_SUBSCRIBED_BY, uuid_buf);
+	if (rc != 0)
+		diag_raise();
+}
+
+void
+box_on_follow(const uint32_t replica_id)
+{
+	if (replica_id == REPLICA_ID_NIL)
+		return;
+
+	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
+	if (!box_is_ro() && raft_is_enabled(box_raft()) &&
+	    access_check_space(space, PRIV_W) == 0) {
+		box_on_leader_follow(replica_id);
+	}
 }
 
 void

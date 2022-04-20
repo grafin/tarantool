@@ -585,6 +585,13 @@ box_broadcast_election(void);
 void
 box_broadcast_schema(void);
 
+/**
+ * Called when replica is connected with relay and applier to this node.
+ * Updates replica state in _cluster space.
+ */
+void
+box_on_follow(const uint32_t replica_id);
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */

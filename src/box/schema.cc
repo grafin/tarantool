@@ -256,12 +256,6 @@ schema_init(void)
 	 * The real index is defined in the snapshot.
 	 */
 	sc_space_new(BOX_PRIV_ID, "_priv", key_parts, 1, &on_replace_priv);
-	/*
-	 * _cluster - association instance uuid <-> instance id
-	 * The real index is defined in the snapshot.
-	 */
-	sc_space_new(BOX_CLUSTER_ID, "_cluster", key_parts, 1,
-		     &on_replace_cluster);
 
 	/* _trigger - all existing SQL triggers. */
 	key_parts[0].fieldno = 0;
@@ -300,6 +294,20 @@ schema_init(void)
 	key_parts[1].type = FIELD_TYPE_UNSIGNED;
 	sc_space_new(BOX_FUNC_INDEX_ID, "_func_index", key_parts, 2,
 		     &on_replace_func_index);
+
+	/*
+	 * _cluster - association instance uuid <-> instance id.
+	 * The real index is defined in the snapshot.
+	 * Also stores uuid of first leader this instance followed.
+	 */
+	key_parts[0].fieldno = 0;
+	key_parts[0].type = FIELD_TYPE_UNSIGNED;
+	key_parts[1].fieldno = 1;
+	key_parts[1].type = FIELD_TYPE_STRING;
+	key_parts[2].fieldno = 2;
+	key_parts[2].type = FIELD_TYPE_STRING;
+	sc_space_new(BOX_CLUSTER_ID, "_cluster", key_parts, 3,
+		     &on_replace_cluster);
 
 	/*
 	 * _vinyl_deferred_delete - blackhole that is needed

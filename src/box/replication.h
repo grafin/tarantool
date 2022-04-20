@@ -248,6 +248,10 @@ struct replicaset {
 	 */
 	int registered_count;
 	/**
+	 * Number of replicas that did subscribe to leader at least once.
+	 */
+	int accounted_count;
+	/**
 	 * Number of registered replicas, to which this node has a bidirectional
 	 * connection, such that both relay and applier are in FOLLOW state.
 	 * Used to notify various subsystems whether there is a quorum of
@@ -324,6 +328,11 @@ struct replica {
 	 * registered in the _cluster space yet.
 	 */
 	uint32_t id;
+	/**
+	 * UUID of the first RW RAFT leader this repilica subscribed to.
+	 */
+	struct tt_uuid initially_subscribed_by;
+
 	/**
 	 * Whether this is an anonymous replica, e.g. a read-only
 	 * replica that doesn't have an id and isn't present in
@@ -590,6 +599,12 @@ replicaset_sync(void);
  */
 void
 replicaset_check_quorum(void);
+
+/**
+ * Update replica information, based on tuple, inserted into _cluster space.
+ */
+struct replica *
+replica_update_from_tuple(struct replica *replica, struct tuple *tuple);
 
 #endif /* defined(__cplusplus) */
 

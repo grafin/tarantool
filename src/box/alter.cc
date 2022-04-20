@@ -4376,7 +4376,19 @@ on_replace_dd_cluster(struct trigger *trigger, void *event)
 				  tt_uuid_str(&replica_uuid));
 			return -1;
 		}
+		struct replica *replica = replica_by_id(replica_id);
 		if (old_tuple != NULL) {
+			/*
+			 * Trying to update replica id: check if it is ok.
+			 */
+			uint32_t old_id;
+			if (tuple_field_u32(old_tuple,
+					    BOX_CLUSTER_FIELD_ID, &old_id) != 0)
+				return -1;
+			if (replica_id != old_id &&
+			    replica_check_id_is_updatable(replica_id) != 0)
+				return -1;
+
 			/*
 			 * Forbid changes of UUID for a registered instance:
 			 * it requires an extra effort to keep _cluster
@@ -4392,6 +4404,9 @@ on_replace_dd_cluster(struct trigger *trigger, void *event)
 					  "updates of instance uuid");
 				return -1;
 			}
+
+			if (replica != NULL)
+				replica_update_from_tuple(replica, new_tuple);
 			return 0;
 		}
 		/*
@@ -4399,7 +4414,6 @@ on_replace_dd_cluster(struct trigger *trigger, void *event)
 		 * whose registration is in progress in another transaction.
 		 * With the same replica ID.
 		 */
-		struct replica *replica = replica_by_id(replica_id);
 		if (replica != NULL) {
 			const char *msg = tt_sprintf(
 				"more than 1 replica with the same ID %u: new "
@@ -4424,6 +4438,7 @@ on_replace_dd_cluster(struct trigger *trigger, void *event)
 		else
 			replica = replicaset_add(replica_id, &replica_uuid);
 		on_rollback->data = replica;
+		replica_update_from_tuple(replica, new_tuple);
 		txn_stmt_on_rollback(stmt, on_rollback);
 	} else {
 		/*
