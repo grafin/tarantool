@@ -1826,7 +1826,14 @@ box_run_elections(void)
 static int
 box_check_promote_term_intact(uint64_t promote_term)
 {
-	if (txn_limbo.promote_greatest_term != promote_term) {
+	if (txn_limbo.promote_greatest_term < promote_term) {
+		if (txn_limbo.owner_id == instance_id) {
+			return 0;
+		}
+		???
+
+	}
+	else if (txn_limbo.promote_greatest_term > promote_term) {
 		diag_set(ClientError, ER_INTERFERING_PROMOTE,
 			 txn_limbo.owner_id);
 		return -1;
