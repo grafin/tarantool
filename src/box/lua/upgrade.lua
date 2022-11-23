@@ -28,6 +28,8 @@ local REPLICATION = 3
 -- choose a fancy id to not clash with any existing role or
 -- user during upgrade
 local SUPER = 31
+-- Local group id
+local GROUP_LOCAL = 1
 
 --------------------------------------------------------------------------------
 -- Utils
@@ -1390,10 +1392,32 @@ local function add_user_auth_history_and_last_modified()
     _space:update({_vuser.id}, ops)
 end
 
+local function create_gc_consumers_space()
+    local _space = box.space[box.schema.SPACE_ID]
+    local _index = box.space[box.schema.INDEX_ID]
+
+    local format = {}
+
+    format[1] = {name='id', type='unsigned'}
+    format[2] = {name='name', type='string'}
+    format[3] = {name='vclock', type='string'}
+
+    log.info("create space _gc_consumers")
+    _space:insert{box.schema.GC_CONSUMERS_ID, ADMIN, '_gc_consumers',
+                  'memtx', 3, {temporary = false, group_id = GROUP_LOCAL},
+                  format}
+
+    -- primary key: instance id
+    log.info("create index _gc_consumers:primary")
+    _index:insert{box.schema.GC_CONSUMERS_ID, 0, 'primary', 'tree',
+                  {unique = true}, {{0, 'unsigned'}}}
+end
+
 local function upgrade_to_2_11_0()
     revoke_write_access_on__collation_from_role_public()
     convert_sql_constraints_to_tuple_constraints()
     add_user_auth_history_and_last_modified()
+    create_gc_consumers_space()
 end
 
 --------------------------------------------------------------------------------
