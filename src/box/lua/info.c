@@ -555,7 +555,11 @@ lbox_info_gc_call(struct lua_State *L)
 	count = 0;
 	struct gc_consumer *consumer;
 	while ((consumer = gc_consumer_iterator_next(&consumers)) != NULL) {
-		lua_createtable(L, 0, 3);
+		lua_createtable(L, 0, 4);
+
+		lua_pushstring(L, "id");
+		lua_pushinteger(L, consumer->id);
+		lua_settable(L, -3);
 
 		lua_pushstring(L, "name");
 		lua_pushstring(L, consumer->name);

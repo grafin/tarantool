@@ -638,7 +638,8 @@ gc_unref_checkpoint(struct gc_checkpoint_ref *ref)
 }
 
 struct gc_consumer *
-gc_consumer_register(const struct vclock *vclock, const char *format, ...)
+gc_consumer_register(const uint32_t id, const struct vclock *vclock,
+		     const char *format, ...)
 {
 	struct gc_consumer *consumer = calloc(1, sizeof(*consumer));
 	if (consumer == NULL) {
@@ -647,6 +648,7 @@ gc_consumer_register(const struct vclock *vclock, const char *format, ...)
 		return NULL;
 	}
 
+	consumer->id = id;
 	va_list ap;
 	va_start(ap, format);
 	vsnprintf(consumer->name, GC_NAME_MAX, format, ap);

@@ -88,6 +88,8 @@ struct gc_checkpoint_ref {
 struct gc_consumer {
 	/** Link in gc_state::consumers. */
 	gc_node_t node;
+	/** Instance id of the consumer. */
+	uint32_t id;
 	/** Human-readable name. */
 	char name[GC_NAME_MAX];
 	/** The vclock tracked by this consumer. */
@@ -335,9 +337,10 @@ gc_unref_checkpoint(struct gc_checkpoint_ref *ref);
  * Returns a pointer to the new consumer object or NULL on
  * memory allocation failure.
  */
-CFORMAT(printf, 2, 3)
+CFORMAT(printf, 3, 4)
 struct gc_consumer *
-gc_consumer_register(const struct vclock *vclock, const char *format, ...);
+gc_consumer_register(const uint32_t id, const struct vclock *vclock,
+		     const char *format, ...);
 
 /**
  * Unregister a consumer and invoke garbage collection
