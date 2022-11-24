@@ -4270,7 +4270,7 @@ box_process_register(struct iostream *io, const struct xrow_header *header)
 	struct gc_consumer *gc = gc_consumer_register(
 		REPLICA_ID_NIL, &req.vclock,
 		"replica %s", tt_uuid_str(&req.instance_uuid));
-	if (gc == NULL)
+	if (gc == NULL || gc_consumer_store(gc) < 0)
 		diag_raise();
 	auto gc_guard = make_scoped_guard([&] { gc_consumer_unregister(gc); });
 
@@ -4311,6 +4311,10 @@ box_process_register(struct iostream *io, const struct xrow_header *header)
 	if (replica->gc != NULL)
 		gc_consumer_unregister(replica->gc);
 	replica->gc = gc;
+
+	if (gc_consumer_store(replica->gc) < 0)
+		diag_raise();
+
 	gc_guard.is_active = false;
 }
 
@@ -4417,7 +4421,7 @@ box_process_join(struct iostream *io, const struct xrow_header *header)
 	struct gc_consumer *gc = gc_consumer_register(
 		replica == NULL ? 0 : replica->id, &replicaset.vclock,
 		"replica %s", tt_uuid_str(&req.instance_uuid));
-	if (gc == NULL)
+	if (gc == NULL || gc_consumer_store(gc) < 0)
 		diag_raise();
 	auto gc_guard = make_scoped_guard([&] { gc_consumer_unregister(gc); });
 
@@ -4473,6 +4477,10 @@ box_process_join(struct iostream *io, const struct xrow_header *header)
 	if (replica->gc != NULL)
 		gc_consumer_unregister(replica->gc);
 	replica->gc = gc;
+
+	if (gc_consumer_store(replica->gc) < 0)
+		diag_raise();
+
 	gc_guard.is_active = false;
 }
 

@@ -61,6 +61,7 @@ def check_join(msg):
 
 ## JOIN with permissions
 server.admin("box.schema.user.grant('guest', 'write', 'space', '_cluster')")
+server.admin("box.schema.user.grant('guest', 'write', 'space', '_gc_consumers')")
 server.iproto.reconnect() # re-connect with new permissions
 server_id = check_join("join with granted permissions")
 server.iproto.py_con.space("_cluster").delete(server_id)

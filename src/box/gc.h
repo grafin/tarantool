@@ -99,6 +99,12 @@ struct gc_consumer {
 	 * deleted by the WAL thread on ENOSPC.
 	 */
 	bool is_inactive;
+
+	/**
+	 * This flag is set if this consumer was loaded from persistent
+	 * storage.
+	 */
+	bool is_loaded;
 };
 
 typedef rb_tree(struct gc_consumer) gc_tree_t;
@@ -378,6 +384,14 @@ gc_consumer_iterator_init(struct gc_consumer_iterator *it)
  */
 struct gc_consumer *
 gc_consumer_iterator_next(struct gc_consumer_iterator *it);
+
+/** Saves gc consumer to persistnet storage. */
+int
+gc_consumer_store(const struct gc_consumer *consumer);
+
+/** Saves gc consumer to persistnet storage in a new fiber. */
+int
+gc_consumer_store_async(const struct gc_consumer *consumer);
 
 #if defined(__cplusplus)
 } /* extern "C" */

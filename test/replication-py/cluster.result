@@ -11,6 +11,9 @@ ok - join without write permissions to _cluster
 box.schema.user.grant('guest', 'write', 'space', '_cluster')
 ---
 ...
+box.schema.user.grant('guest', 'write', 'space', '_gc_consumers')
+---
+...
 ok - join with granted permissions
 box.schema.user.revoke('guest', 'read', 'universe')
 ---

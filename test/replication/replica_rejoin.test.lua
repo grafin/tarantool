@@ -35,6 +35,7 @@ test_run:cmd("stop server replica")
 
 -- Restart the server to purge the replica from
 -- the garbage collection state.
+_ = box.space._gc_consumers:delete{2}
 test_run:cmd("restart server master")
 box.cfg{wal_cleanup_delay = 0}
 
@@ -71,6 +72,7 @@ test_run:cmd("switch replica")
 box.space.test:select()
 
 -- Check that restart works as usual.
+box.space._gc_consumers:delete{1}
 test_run:cmd("restart server replica with args='true'")
 box.info.replication[1].upstream.status == 'follow' or log.error(box.info)
 box.space.test:select()
@@ -80,6 +82,7 @@ box.space.test:select()
 box.space.test:replace{1, 2, 3} -- bumps LSN on the replica
 test_run:cmd("switch master")
 test_run:cmd("stop server replica")
+_ = box.space._gc_consumers:delete{2}
 test_run:cmd("restart server master")
 box.cfg{wal_cleanup_delay = 0}
 checkpoint_count = box.cfg.checkpoint_count
@@ -125,6 +128,7 @@ vclock[0] = nil
 _ = test_run:wait_vclock('master', vclock)
 -- Restart the master and force garbage collection.
 test_run:cmd("switch master")
+_ = box.space._gc_consumers:delete{2}
 test_run:cmd("restart server master")
 box.cfg{wal_cleanup_delay = 0}
 replica_listen = test_run:cmd("eval replica 'return box.cfg.listen'")

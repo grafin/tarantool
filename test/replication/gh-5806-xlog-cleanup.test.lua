@@ -67,10 +67,14 @@ box.snapshot()
 -- xlog because it will be tracked by gc consumer which
 -- kept in memory while master node is running.
 --
+-- To prevent loading persistent consumers state, delete
+-- consumer from _gc_consumers space before restart.
+--
 -- Once restarted we write a new record into master's
 -- space and run snapshot which removes old xlog required
 -- by replica to subscribe leading to XlogGapError which
 -- we need to test.
+_ = test_run:eval('master', 'box.space._gc_consumers:delete({2})')
 test_run:cmd('restart server master')
 box.space.test:insert({2})
 box.snapshot()

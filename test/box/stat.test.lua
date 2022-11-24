@@ -7,7 +7,7 @@ box.stat.INSERT.total
 box.stat.DELETE.total
 box.stat.UPDATE.total
 box.stat.REPLACE.total
-box.stat.SELECT.total
+box.stat.SELECT.total -- 1 because of loading gc consumers
 box.stat.ERROR.total
 
 space = box.schema.space.create('tweedledum')
@@ -57,7 +57,7 @@ box.stat.INSERT.total
 box.stat.DELETE.total
 box.stat.UPDATE.total
 box.stat.REPLACE.total
-box.stat.SELECT.total
+box.stat.SELECT.total -- 1 because of loading gc consumers
 box.stat.ERROR.total
 
 -- cleanup

@@ -22,9 +22,9 @@ box.stat.REPLACE.total
 ---
 - 0
 ...
-box.stat.SELECT.total
+box.stat.SELECT.total -- 1 because of loading gc consumers
 ---
-- 0
+- 1
 ...
 box.stat.ERROR.total
 ---
@@ -160,9 +160,9 @@ box.stat.REPLACE.total
 ---
 - 0
 ...
-box.stat.SELECT.total
+box.stat.SELECT.total -- 1 because of loading gc consumers
 ---
-- 0
+- 1
 ...
 box.stat.ERROR.total
 ---

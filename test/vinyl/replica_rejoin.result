@@ -60,6 +60,9 @@ test_run:cmd("stop server replica")
 - true
 ...
 -- Invoke garbage collector on the master.
+_ = box.space._gc_consumers:delete(2)
+---
+...
 test_run:cmd("restart server default")
 box.cfg{wal_cleanup_delay = 0}
 ---
@@ -132,6 +135,9 @@ test_run:cmd("stop server replica")
 - true
 ...
 -- Invoke garbage collector on the master.
+_ = box.space._gc_consumers:delete(2)
+---
+...
 test_run:cmd("restart server default")
 box.cfg{wal_cleanup_delay = 0}
 ---

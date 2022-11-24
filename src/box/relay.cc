@@ -637,6 +637,8 @@ tx_gc_advance(struct cmsg *msg)
 {
 	struct relay_gc_msg *m = (struct relay_gc_msg *)msg;
 	gc_consumer_advance(m->relay->replica->gc, &m->vclock);
+	if (gc_consumer_store(m->relay->replica->gc) < 0)
+		diag_raise();
 	free(m);
 }
 
@@ -1092,6 +1094,7 @@ relay_subscribe(struct replica *replica, struct iostream *io, uint64_t sync,
 		bool had_gc = false;
 		if (replica->gc != NULL) {
 			gc_consumer_unregister(replica->gc);
+			replica->gc = NULL;
 			had_gc = true;
 		}
 		replica->gc = gc_consumer_register(
@@ -1099,6 +1102,7 @@ relay_subscribe(struct replica *replica, struct iostream *io, uint64_t sync,
 			"replica %s", tt_uuid_str(&replica->uuid));
 		if (replica->gc == NULL)
 			diag_raise();
+		gc_consumer_store_async(replica->gc);
 		if (!had_gc)
 			gc_delay_unref();
 	}

@@ -57,6 +57,12 @@
 #include "wal.h"		/* wal_collect_garbage() */
 #include "checkpoint_schedule.h"
 #include "txn_limbo.h"
+#include "iproto_constants.h"
+#include "schema.h"
+#include "replication.h"
+#include "box.h"
+#include "tuple.h"
+#include "session.h"
 
 struct gc_state gc;
 
@@ -91,6 +97,68 @@ gc_consumer_delete(struct gc_consumer *consumer)
 {
 	TRASH(consumer);
 	free(consumer);
+}
+
+/** Load all saved consumers. */
+static int
+gc_consumers_restore()
+{
+	/* 16 bytes to encode zero-length array */
+	char key_buf[16];
+	char *key_end = mp_encode_array(key_buf, 0);
+
+	struct tuple *tuple = NULL;
+	struct iterator *it = box_index_iterator(
+		BOX_GC_CONSUMERS_ID, 0, ITER_ALL, key_buf, key_end);
+
+	if (it == NULL)
+		return 0;
+
+	int rc = 0;
+	uint32_t id = 0;
+	const char *name = NULL;
+	const char *vclock_str = NULL;
+	struct vclock vclock;
+
+	struct gc_consumer *consumer = NULL;
+	box_iterator_next(it, &tuple);
+	while (tuple != NULL) {
+		rc = tuple_field_u32(tuple, BOX_GC_CONSUMERS_FIELD_ID, &id);
+		if (rc != 0) {
+			say_error("failed to load stored consumer id");
+			continue;
+		}
+
+		name = tuple_field_cstr(tuple, BOX_GC_CONSUMERS_FIELD_NAME);
+		if (name == NULL) {
+			say_error("failed to load stored consumer name");
+			continue;
+		}
+
+		vclock_str = tuple_field_cstr(tuple,
+					      BOX_GC_CONSUMERS_FIELD_VCLOCK);
+		if (vclock_str == NULL) {
+			say_error("failed to load stored consumer vclock");
+			continue;
+		}
+
+		/* vclock_from_string() can fail if vclock isn't empty */
+		memset(&vclock, 0, sizeof(vclock));
+		rc = vclock_from_string(&vclock, vclock_str);
+		if (rc != 0) {
+			say_error("failed to decode stored consumer vclock '%s'"
+				  " at offset %d", vclock_str, rc);
+			continue;
+		}
+
+		consumer = gc_consumer_register(id, &vclock, "%s", name);
+		consumer->is_loaded = true;
+
+		box_iterator_next(it, &tuple);
+	}
+	say_info("loaded stored gc consumers");
+
+	return 0;
 }
 
 /** Free a checkpoint object. */
@@ -286,6 +354,9 @@ gc_cleanup_fiber_f(va_list ap)
 			timeout = gc.wal_cleanup_delay - elapsed;
 		}
 	}
+
+	/* Load saved consumers. */
+	gc_consumers_restore();
 
 	/*
 	 * Stage 2: a regular cleanup cycle.
@@ -637,11 +708,28 @@ gc_unref_checkpoint(struct gc_checkpoint_ref *ref)
 	gc_schedule_cleanup();
 }
 
+static struct gc_consumer *
+gc_consumer_search_by_id(const uint32_t id)
+{
+	struct gc_consumer *consumer = gc_tree_first(&gc.consumers);
+	while (consumer != NULL && consumer->id != id)
+		consumer = gc_tree_next(&gc.consumers, consumer);
+	return consumer;
+}
+
 struct gc_consumer *
 gc_consumer_register(const uint32_t id, const struct vclock *vclock,
 		     const char *format, ...)
 {
-	struct gc_consumer *consumer = calloc(1, sizeof(*consumer));
+	struct gc_consumer *consumer = NULL;
+
+	if (id != REPLICA_ID_NIL)
+		consumer = gc_consumer_search_by_id(id);
+	if (consumer != NULL && consumer->is_loaded) {
+		gc_consumer_unregister(consumer);
+	}
+
+	consumer = calloc(1, sizeof(*consumer));
 	if (consumer == NULL) {
 		diag_set(OutOfMemory, sizeof(*consumer),
 			 "malloc", "struct gc_consumer");
@@ -709,4 +797,47 @@ gc_consumer_iterator_next(struct gc_consumer_iterator *it)
 	else
 		it->curr = gc_tree_first(&gc.consumers);
 	return it->curr;
+}
+
+int
+gc_consumer_store(const struct gc_consumer *consumer)
+{
+	if (consumer->id == REPLICA_ID_NIL)
+		return 0;
+
+	const char *vclock = vclock_to_string(&consumer->vclock);
+
+	struct credentials *orig_credentials = effective_user();
+	fiber_set_user(fiber(), &admin_credentials);
+
+	int rc = boxk(IPROTO_REPLACE, BOX_GC_CONSUMERS_ID, "[%u, %s, %s]",
+		      consumer->id, consumer->name, vclock);
+
+	fiber_set_user(fiber(), orig_credentials);
+
+	return rc;
+}
+
+/**
+ * Wrapper around gc_consumer_store() to be used in a new fiber.
+ */
+static int
+gc_consumer_store_f(va_list ap)
+{
+	struct gc_consumer *consumer = va_arg(ap, struct gc_consumer *);
+	return gc_consumer_store(consumer);
+}
+
+int
+gc_consumer_store_async(const struct gc_consumer *consumer)
+{
+	char name[GC_NAME_MAX];
+	snprintf(name, sizeof(name), "gc_consumer_store(%u)", consumer->id);
+
+	struct fiber *fiber = fiber_new_system(name, gc_consumer_store_f);
+	if (fiber == NULL)
+		panic("failed to create a fiber to store a GC consumer");
+
+	fiber_start(fiber, consumer);
+	return 0;
 }

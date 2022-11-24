@@ -5,6 +5,7 @@
 -- that need them. See gh-3397.
 --
 test_run = require('test_run').new()
+vclock_diff = require('fast_replica').vclock_diff
 engine = test_run:get_cfg('engine')
 
 fio = require('fio')
@@ -74,7 +75,7 @@ check_snap_count(2)
 gc = box.info.gc()
 #gc.consumers -- 3
 #gc.checkpoints -- 2
-gc.signature == gc.consumers[1].signature
+vclock_diff(gc.vclock, gc.consumers[1].vclock) -- 0
 
 --
 -- Inject a ENOSPC error and check that the WAL thread deletes
@@ -89,7 +90,7 @@ check_snap_count(2)
 gc = box.info.gc()
 #gc.consumers -- 1
 #gc.checkpoints -- 2
-gc.signature == gc.consumers[1].signature
+vclock_diff(gc.vclock, gc.consumers[1].vclock) -- 0
 
 --
 -- Check that the WAL thread never deletes WAL files that are

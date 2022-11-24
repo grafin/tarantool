@@ -4637,6 +4637,22 @@ on_replace_dd_cluster_insert(const struct replica_def *new_def)
 	return on_replace_dd_cluster_set_name(replica, new_def->name);
 }
 
+/** Remove replica form _gc_consumers. */
+static int
+on_replace_dd_cluster_remove_gc_consumer(struct trigger *trigger, void *event)
+{
+	(void)event;
+	struct replica *replica = (struct replica *)trigger->data;
+
+	if (replica->id == REPLICA_ID_NIL)
+		return 0;
+
+	if (boxk(IPROTO_DELETE, BOX_GC_CONSUMERS_ID, "[%u]", replica->id) != 0)
+		diag_raise();
+
+	return 0;
+}
+
 /** _cluster delete - only the old tuple is present. */
 static int
 on_replace_dd_cluster_delete(const struct replica_def *old_def)
@@ -4670,6 +4686,16 @@ on_replace_dd_cluster_delete(const struct replica_def *old_def)
 		      "internally - %s", old_def->id,
 		      tt_uuid_str(&old_def->uuid), tt_uuid_str(&replica->uuid));
 	}
+
+	/*
+	 * Remove replica from _gc_consumers.
+	 */
+	struct trigger *remove_gc_consumer = txn_alter_trigger_new(
+		on_replace_dd_cluster_remove_gc_consumer, replica);
+	if (remove_gc_consumer == NULL)
+		return -1;
+	txn_stmt_on_commit(stmt, remove_gc_consumer);
+
 	/*
 	 * Unregister only after commit. Otherwise if the transaction would be
 	 * rolled back, there might be already another replica taken the freed

@@ -308,8 +308,10 @@ replica_delete(struct replica *replica)
 	assert(replica_is_orphan(replica));
 	if (replica->relay != NULL)
 		relay_delete(replica->relay);
-	if (replica->gc != NULL)
+	if (replica->gc != NULL) {
 		gc_consumer_unregister(replica->gc);
+		replica->gc = NULL;
+	}
 	TRASH(replica);
 	free(replica);
 }
@@ -363,6 +365,8 @@ replica_set_id(struct replica *replica, uint32_t replica_id)
 		replica->gc = gc_consumer_register(
 			replica_id, &replicaset.vclock,
 			"replica %s", tt_uuid_str(&replica->uuid));
+		if (replica->gc == NULL || gc_consumer_store(replica->gc) < 0)
+			diag_raise();
 	}
 	replicaset.replica_by_id[replica_id] = replica;
 	gc_delay_ref();

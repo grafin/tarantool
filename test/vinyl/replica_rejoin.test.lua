@@ -28,6 +28,7 @@ _ = box.space.mem:replace{'files', files}
 test_run:cmd("stop server replica")
 
 -- Invoke garbage collector on the master.
+_ = box.space._gc_consumers:delete(2)
 test_run:cmd("restart server default")
 box.cfg{wal_cleanup_delay = 0}
 checkpoint_count = box.cfg.checkpoint_count
@@ -54,6 +55,7 @@ _ = box.space.mem:replace{'files', files}
 test_run:cmd("stop server replica")
 
 -- Invoke garbage collector on the master.
+_ = box.space._gc_consumers:delete(2)
 test_run:cmd("restart server default")
 box.cfg{wal_cleanup_delay = 0}
 checkpoint_count = box.cfg.checkpoint_count
