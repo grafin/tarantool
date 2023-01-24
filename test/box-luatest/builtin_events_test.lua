@@ -372,13 +372,14 @@ local function wait_ballot_updated_to(expected)
 end
 
 g.test_internal_ballot = function(cg)
-    local old_vclock = cg.master:get_vclock()
+    local old_vclock = cg.master:get_vclock({ignore_zero = true})
     local vclock = cg.master:exec(function()
         box.schema.space.create('test')
         box.space.test:create_index('pk')
         box.space.test:insert{1}
         return box.info.vclock
     end)
+    vclock[0] = nil
     local ballot_key = box.iproto.ballot_key
     local expected = {
         [ballot_key.IS_RO_CFG] = true,
@@ -400,7 +401,7 @@ g.test_internal_ballot = function(cg)
     cg.replica:exec(function() box.cfg{replication_anon = false} end)
     expected[ballot_key.IS_ANON] = false
     -- Replica registration bumps vclock.
-    expected[ballot_key.VCLOCK] = cg.master:get_vclock()
+    expected[ballot_key.VCLOCK] = cg.master:get_vclock({ignore_zero = true})
     table.insert(expected[ballot_key.REGISTERED_REPLICA_UUIDS],
                  cg.replica:get_instance_uuid())
     table.sort(expected[ballot_key.REGISTERED_REPLICA_UUIDS])
