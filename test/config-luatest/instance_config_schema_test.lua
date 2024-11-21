@@ -1736,7 +1736,11 @@ g.test_failover = function()
                         instance001 = 1
                     }
                 }
-            }
+            },
+            log = {
+                to = 'file',
+                file = 'var/log/tarantool/failover.log',
+            },
         }
     }
 
